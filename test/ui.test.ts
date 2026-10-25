@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { choose, prompt, statusBar, textInput, scrollText } from '../../engine/ui.ts';
+import { askText, choose, prompt, statusBar, textInput, scrollText } from '../../engine/ui.ts';
 import { Screen } from '../../engine/screen.ts';
 import { FakeTerminal, mouse, row, typed, type Step } from '../helpers.ts';
 import type { Key } from '../../engine/terminal.ts';
@@ -197,4 +197,33 @@ test('the status bar cuts off a message too long for it, keeping its ends', () =
     statusBar(screen, 'x'.repeat(120));
     expect(row(screen, 23)).toBe('░▒' + 'x'.repeat(75) + '▒░');
     expect(row(screen, 24)).toBe('z');
+});
+
+describe('askText and masks', () => {
+    test('askText gives the text on Enter and null on Escape', async () => {
+        expect(await askText(new FakeTerminal(typed('hi')), { x: 1, y: 1, length: 10 })).toBe('hi');
+        expect(await askText(new FakeTerminal(['h', 'escape']), { x: 1, y: 1, length: 10 })).toBeNull();
+    });
+
+    test('a mask hides what is typed', async () => {
+        const term = new FakeTerminal([
+            ...'abc',
+            () => {
+                expect(row(term.screen, 1)).toBe('***');
+                return 'enter';
+            },
+        ]);
+        expect(await textInput(term, { x: 1, y: 1, length: 10, mask: '*', bg: 0 })).toBe('abc');
+    });
+});
+
+test('choose can take its colours', async () => {
+    const term = new FakeTerminal([
+        () => {
+            expect(term.screen.cell(1, 1)).toMatchObject({ fg: 11, bg: 1 });
+            expect(term.screen.cell(1, 2)).toMatchObject({ fg: 9, bg: 1 });
+            return 'enter';
+        },
+    ]);
+    await choose(term, ['One', 'Two'], { y: 1, colors: { normal: [9, 1], selected: [11, 1] } });
 });

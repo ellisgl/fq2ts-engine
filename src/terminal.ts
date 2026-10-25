@@ -28,7 +28,20 @@ export type InputEvent = Key | MouseInput;
 
 export const isMouse = (event: InputEvent): event is MouseInput => typeof event !== 'string';
 
-type Waiter = (event: InputEvent) => void;
+interface Waiter {
+    deliver(event: InputEvent): void;
+    fail(error: Error): void;
+}
+
+// What waiting for a key throws once the player has gone (their
+// connection closed): whatever was waiting can tidy up and stop.
+export class Disconnected extends Error {
+    public override name = 'Disconnected';
+
+    public constructor() {
+        super('The player has disconnected.');
+    }
+}
 
 // Turns on reporting of button presses, releases and drags, in SGR form.
 const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
@@ -160,6 +173,7 @@ export class Terminal {
     private waiters: Waiter[] = [];
     private active = false;
     private mouse = false;
+    private gone = false;
     private lastInputAt = Date.now();
     public onInterrupt: () => void = () => {};
 
@@ -259,7 +273,7 @@ export class Terminal {
         this.noteInput();
         const waiter = this.waiters.shift();
         if (waiter) {
-            waiter(event);
+            waiter.deliver(event);
             return;
         }
 
@@ -284,6 +298,10 @@ export class Terminal {
     public event(): Promise<InputEvent>;
     public event(timeout: number): Promise<InputEvent | null>;
     public event(timeout = Infinity): Promise<InputEvent | null> {
+        if (this.gone) {
+            return Promise.reject(new Disconnected());
+        }
+
         this.flush();
         const queued = this.queue.shift();
         if (queued !== undefined) {
@@ -291,11 +309,17 @@ export class Terminal {
         }
 
         return new Promise(
-            (resolve) => {
+            (resolve, reject) => {
                 let timer: ReturnType<typeof setTimeout> | undefined;
-                const waiter: Waiter = (event) => {
-                    clearTimeout(timer);
-                    resolve(event);
+                const waiter: Waiter = {
+                    deliver: (event) => {
+                        clearTimeout(timer);
+                        resolve(event);
+                    },
+                    fail: (error) => {
+                        clearTimeout(timer);
+                        reject(error);
+                    },
                 };
 
                 this.waiters.push(waiter);
@@ -310,6 +334,23 @@ export class Terminal {
                 }
             },
         );
+    }
+
+    // The player has gone (their connection closed). Anything waiting for a
+    // key, now or later, gets a Disconnected error instead.
+    public disconnect(): void {
+        if (this.gone) {
+            return;
+        }
+
+        this.gone = true;
+        for (const waiter of this.waiters.splice(0)) {
+            waiter.fail(new Disconnected());
+        }
+    }
+
+    public get disconnected(): boolean {
+        return this.gone;
     }
 
     // Drops keys typed ahead.

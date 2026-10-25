@@ -7,7 +7,7 @@ import { Bestiary, type Monster } from '../../engine/combat.ts';
 import { Saves } from '../../engine/saves.ts';
 import type { Key } from '../../engine/terminal.ts';
 import { title, help, credits, worldMapLegend } from '../../content/ui.ts';
-import { monster, makeGameWith, makeMap, makeWorld, readData, row, screenText, tempDir, typed, type FakeTerminal, type Step } from '../helpers.ts';
+import { caught, monster, makeGameWith, makeMap, makeWorld, readData, row, screenText, tempDir, typed, type FakeTerminal, type Step } from '../helpers.ts';
 
 // ---- A small game to drive the engine with
 
@@ -328,8 +328,7 @@ describe('triggers', () => {
     test('going to a missing screen is an error', async () => {
         const broken: Content<TestFlags> = { ...testContent, screens: { 1: { at: { '11,10': (g) => g.goto(99, 1, 1) } } } };
         const { game, term } = makeGameWith(broken, { world, monsters: onlyMonster(monster()), player: player(), steps: [...RESUME, 'right'] });
-        expect(game.run()).rejects.toThrow('Screen 99 does not exist.');
-        await Promise.resolve();
+        expect(await caught(game.run())).toEqual(new Error('Screen 99 does not exist.'));
         expect(term.remaining).toBe(0);
     });
 });
@@ -1105,5 +1104,56 @@ describe('multiplayer groundwork', () => {
             'escape',
         );
         await run(game, term);
+    });
+});
+
+describe('playing without the title menu (for a server)', () => {
+    test('begin starts a new game with the given player', async () => {
+        const { game, term } = setup();
+        const p = game.freshPlayer();
+        p.gold = 999;
+        term.feed('x', 'right', 'escape');
+        await game.begin(p);
+        expect(game.playing).toMatchObject({ gold: 999, x: 11 });
+        expect(term.remaining).toBe(0);
+    });
+
+    test('resume carries on, running the arrival trigger unless told not to', async () => {
+        const { game, term } = setup();
+        term.feed('escape');
+        await game.resume(player({ x: 10, y: 11 }));
+        expect(game.playing.screen).toBe(3);
+        term.feed('escape');
+        await game.resume(player({ x: 10, y: 11 }), { arrive: false });
+        expect(game.playing.screen).toBe(1);
+    });
+
+    test('resume puts a player off the map back at the start', async () => {
+        const { game, term } = setup();
+        term.feed('escape');
+        await game.resume(player({ screen: 99, x: 5, y: 5 }));
+        expect(game.playing).toMatchObject({ screen: 1, x: 10, y: 10 });
+    });
+
+    test('without the screensaver, an idle player just waits', async () => {
+        const clock = mockClock();
+        const { game, term } = makeGameWith(testContent, { world, monsters: onlyMonster(monster()), screensaver: false });
+        term.feed(
+            () => {
+                clock.advance(10 * 60_000);
+                return null;
+            },
+            () => {
+                expect(screenText(term.screen)).not.toContain('Screen Protection');
+                return 'escape';
+            },
+        );
+        await game.resume(player());
+    });
+
+    test('a game without save slots says so if asked to save', async () => {
+        const { game, term } = makeGameWith(testContent, { world, monsters: onlyMonster(monster()), noSaves: true, player: player() });
+        term.feed('down', 'enter');
+        expect(await caught(game.run())).toEqual(new Error('This game has no save slots.'));
     });
 });

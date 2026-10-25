@@ -6,7 +6,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { Terminal, type InputEvent, type Key, type MouseInput, type TerminalInput, type TerminalOutput } from '../engine/terminal.ts';
+import { Disconnected, Terminal, type InputEvent, type Key, type MouseInput, type TerminalInput, type TerminalOutput } from '../engine/terminal.ts';
 import { HEIGHT, WIDTH, type Screen } from '../engine/screen.ts';
 import { World, MAP_WIDTH, MAP_HEIGHT, type GameMap, type MapKind } from '../engine/world.ts';
 import { Game, readConfig, type Config, type Content } from '../engine/game.ts';
@@ -80,6 +80,10 @@ export class FakeTerminal extends Terminal {
     public override event(): Promise<InputEvent>;
     public override event(timeout: number): Promise<InputEvent | null>;
     public override event(): Promise<InputEvent | null> {
+        if (this.disconnected) {
+            return Promise.reject(new Disconnected());
+        }
+
         const step = this.steps.shift();
         if (step === undefined) {
             if (this.fallback !== undefined) {
@@ -179,11 +183,14 @@ interface GameSetup<F extends FlagRecord> {
     monsters?: Bestiary;
     items?: ItemCatalogue;
     autosave?(player: Player<F>): void;
+    screensaver?: boolean;
+    // No save slots (like a server's games).
+    noSaves?: boolean;
 }
 
 export function makeGameWith<F extends FlagRecord>(
     gameContent: Content<F>,
-    { steps = [], fallback, player, world, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave }: GameSetup<F> = {},
+    { steps = [], fallback, player, world, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false }: GameSetup<F> = {},
 ): { game: Game<F>; term: FakeTerminal } {
     const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
     const game = new Game({
@@ -193,7 +200,8 @@ export function makeGameWith<F extends FlagRecord>(
         monsters,
         items,
         content: gameContent,
-        saves: saves ?? new Saves(tempDir()),
+        ...(noSaves ? {} : { saves: saves ?? new Saves(tempDir()) }),
+        ...(screensaver === undefined ? {} : { screensaver }),
         debug,
         ...(player ? { player } : {}),
         ...(autosave ? { autosave } : {}),
@@ -235,4 +243,15 @@ export function monster(changes: Partial<Monster> & { attack?: number } = {}): M
     const attacks: Attack[] = [{ text: 'hits you', power: attack ?? 15 }];
 
     return { name: 'Frog', says: 'Ribbit!', pronoun: 'it', hp: 15, defense: 0, gold: 15, exp: 11, attacks, kill: '', after: {}, ...rest };
+}
+
+// The error a promise fails with, once it has (undefined if it doesn't fail).
+export async function caught(promise: Promise<unknown>): Promise<unknown> {
+    try {
+        await promise;
+    } catch (error) {
+        return error;
+    }
+
+    return undefined;
 }

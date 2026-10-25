@@ -83,7 +83,9 @@ export interface GameOptions<F extends FlagRecord> {
     monsters: Bestiary;
     items: ItemCatalogue;
     content: Content<F>;
-    saves: Saves;
+    // Save slots for the title menu (single-player). A server keeps players
+    // itself, through autosave, and has none.
+    saves?: Saves;
     debug?: boolean;
     // A game already in progress (otherwise the player starts one from the
     // title menu).
@@ -92,6 +94,9 @@ export interface GameOptions<F extends FlagRecord> {
     // change, a script or a fight, and on leaving the map. (Single-player
     // saves by slot instead; a server saves here.)
     autosave?(player: Player<F>): void;
+    // Whether an idle player gets the screensaver (a server disconnects
+    // them instead). On by default.
+    screensaver?: boolean;
 }
 
 const MESSAGE_SECONDS = 4;
@@ -142,7 +147,8 @@ export class Game<F extends FlagRecord> {
     private readonly world: World;
     public readonly monsters: Bestiary;
     private readonly content: Content<F>;
-    private readonly saves: Saves;
+    private readonly saves: Saves | null;
+    private readonly useScreensaver: boolean;
     private readonly debug: boolean;
     private player: Player<F> | null = null;
     private noclip = false;
@@ -160,7 +166,7 @@ export class Game<F extends FlagRecord> {
     private mapShown = false;
     private readonly autosave: ((player: Player<F>) => void) | undefined;
 
-    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave }: GameOptions<F>) {
+    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true }: GameOptions<F>) {
         this.term = term;
         this.screen = term.screen;
         this.world = world;
@@ -189,7 +195,8 @@ export class Game<F extends FlagRecord> {
         }
 
         this.content = content;
-        this.saves = saves;
+        this.saves = saves ?? null;
+        this.useScreensaver = screensaver;
         this.debug = debug;
         this.showPosition = debug;
         this.player = player ?? null;
@@ -229,8 +236,47 @@ export class Game<F extends FlagRecord> {
         return this.player;
     }
 
-    private newPlayer(): Player<F> {
+    // A player for a new game, from the content's start.
+    public freshPlayer(): Player<F> {
         return structuredClone(this.content.start);
+    }
+
+    // Starts a new game with this player: the content's opening scene, then
+    // exploring, until the player presses Escape.
+    public async begin(player: Player<F>): Promise<void> {
+        this.player = player;
+        this.noclip = false;
+        this.clearScreen();
+        await this.content.newGame(this.script());
+        await this.play({ arrive: true });
+    }
+
+    // Carries on with this player, until they press Escape. `arrive` runs the
+    // trigger they're standing on (as after loading a game).
+    public async resume(player: Player<F>, { arrive = true } = {}): Promise<void> {
+        this.placeSafely(player);
+        this.player = player;
+        this.noclip = false;
+        await this.play({ arrive });
+    }
+
+    // A saved player on a screen that's gone, or off the map, starts again
+    // where new games do.
+    private placeSafely(player: Player<F>): void {
+        const onMap = player.x >= 1 && player.x <= MAP_WIDTH && player.y >= 1 && player.y <= MAP_HEIGHT;
+        if (!this.world.has(player.screen) || !onMap) {
+            const { screen, x, y } = this.content.start;
+            Object.assign(player, { screen, x, y });
+        }
+    }
+
+    // The save slots, which only single-player games have.
+    private get slots(): Saves {
+        if (!this.saves) {
+            throw new Error('This game has no save slots.');
+        }
+
+        return this.saves;
     }
 
     private script(): ScriptContext<F> {
@@ -313,7 +359,7 @@ export class Game<F extends FlagRecord> {
                 }
 
                 if (this.debug && (key === 's' || key === 'S')) {
-                    this.player ??= this.newPlayer();
+                    this.player ??= this.freshPlayer();
                     await this.settings();
 
                     break;
@@ -323,11 +369,7 @@ export class Game<F extends FlagRecord> {
     }
 
     private async newGame(): Promise<void> {
-        this.player = this.newPlayer();
-        this.noclip = false;
-        this.clearScreen();
-        await this.content.newGame(this.script());
-        await this.play({ arrive: true });
+        await this.begin(this.freshPlayer());
     }
 
     private async help(): Promise<void> {
@@ -401,7 +443,7 @@ export class Game<F extends FlagRecord> {
     private async waitKey(): Promise<Key> {
         for (;;) {
             const now = Date.now();
-            let timeout = this.term.lastInput + SCREENSAVER_SECONDS * 1000 - now;
+            let timeout = this.useScreensaver ? this.term.lastInput + SCREENSAVER_SECONDS * 1000 - now : Infinity;
             if (this.messageText) {
                 timeout = Math.min(timeout, this.messageUntil - now);
             }
@@ -418,7 +460,7 @@ export class Game<F extends FlagRecord> {
                 this.nextMessage();
             }
 
-            if (Date.now() >= this.term.lastInput + SCREENSAVER_SECONDS * 1000) {
+            if (this.useScreensaver && Date.now() >= this.term.lastInput + SCREENSAVER_SECONDS * 1000) {
                 await this.screensaver();
                 await this.redraw();
             }
@@ -745,7 +787,7 @@ export class Game<F extends FlagRecord> {
         this.clearScreen();
         screen.text(30, 9, title, 10, 0);
         screen.text(30, 17, 'Enter a Choice.', 4, 0);
-        const slots = this.saves.list();
+        const slots = this.slots.list();
         let selected = 0;
 
         for (;;) {
@@ -802,7 +844,7 @@ export class Game<F extends FlagRecord> {
         // An empty slot suggests the player's name.
         const suggested = slot.name ?? this.player.name.slice(0, 15);
         const name = (await textInput(this.term, { x: 30, y, length: 16, value: suggested, fg: 15, bg: 0 })).trim();
-        this.saves.save(slot.slot, name && name !== 'Empty' ? name : 'NoName', this.player);
+        this.slots.save(slot.slot, name && name !== 'Empty' ? name : 'NoName', this.player);
     }
 
     private async loadScreen(): Promise<boolean> {
@@ -813,7 +855,7 @@ export class Game<F extends FlagRecord> {
 
         let player;
         try {
-            const saved = this.saves.load(slot.slot);
+            const saved = this.slots.load(slot.slot);
             player = restorePlayer(this.content.start, saved, this.items, `slot${slot.slot}.json`);
             this.content.upgradeSave?.(saved, player);
         } catch (err) {
@@ -824,14 +866,7 @@ export class Game<F extends FlagRecord> {
             return false;
         }
 
-        // A save from a screen that's gone, or from off the map, starts again
-        // where new games do.
-        const onMap = player.x >= 1 && player.x <= MAP_WIDTH && player.y >= 1 && player.y <= MAP_HEIGHT;
-        if (!this.world.has(player.screen) || !onMap) {
-            const { screen, x, y } = this.content.start;
-            Object.assign(player, { screen, x, y });
-        }
-
+        this.placeSafely(player);
         this.player = player;
         this.noclip = false;
 

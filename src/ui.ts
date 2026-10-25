@@ -27,7 +27,18 @@ export function statusBar(screen: Screen, text: string): void {
 export async function choose(
     term: Terminal,
     options: readonly string[],
-    { y, x = 1, selected = 0 }: { y: number; x?: number; selected?: number },
+    {
+        y,
+        x = 1,
+        selected = 0,
+        colors = { normal: [WHITE, 0], selected: [WHITE, BLUE] },
+    }: {
+        y: number;
+        x?: number;
+        selected?: number;
+        // [foreground, background] for the options and the highlighted one.
+        colors?: { normal: readonly [Color, Color]; selected: readonly [Color, Color] };
+    },
 ): Promise<number> {
     // With nothing to pick, there's nothing to wait for.
     if (!options.length) {
@@ -38,7 +49,8 @@ export async function choose(
     const plain = (i: number): string => at(options, i).replace(/\{[^}]*\}/g, '');
     for (;;) {
         options.forEach((option, i) => {
-            draw(screen, option, { x, y: y + i, fg: WHITE, bg: i === selected ? BLUE : 0 });
+            const [fg, bg] = i === selected ? colors.selected : colors.normal;
+            draw(screen, option, { x, y: y + i, fg, bg });
         });
         screen.cursor = { x: x + [...plain(selected)].length, y: y + selected };
         const key = await term.event();
@@ -77,22 +89,36 @@ export interface TextInputOptions {
     fg?: Color;
     bg?: Color;
     filter?(ch: string): boolean;
+    // Shown in place of each character typed (for passwords).
+    mask?: string;
 }
 
 // A one-line text box. `length` includes the cursor cell, as in the
 // original. Escape and Enter both finish.
-export async function textInput(
+export async function textInput(term: Terminal, options: TextInputOptions): Promise<string> {
+    return (await editText(term, options)).value;
+}
+
+// Like textInput, but Escape cancels: the result is then null.
+export async function askText(term: Terminal, options: TextInputOptions): Promise<string | null> {
+    const { value, escaped } = await editText(term, options);
+    return escaped ? null : value;
+}
+
+async function editText(
     term: Terminal,
-    { x, y, length, value = '', fg = WHITE, bg = BLUE, filter = () => true }: TextInputOptions,
-): Promise<string> {
+    { x, y, length, value = '', fg = WHITE, bg = BLUE, filter = () => true, mask }: TextInputOptions,
+): Promise<{ value: string; escaped: boolean }> {
     const { screen } = term;
     const max = Math.max(0, length - 1);
     for (;;) {
-        screen.text(x, y, value.padEnd(length).slice(0, Math.max(length, value.length)), fg, bg);
+        const shown = mask === undefined ? value : mask.repeat(value.length);
+        screen.text(x, y, shown.padEnd(length).slice(0, Math.max(length, shown.length)), fg, bg);
         screen.cursor = { x: Math.min(x + value.length, WIDTH), y };
         const key = await term.key();
         if (key === 'enter' || key === 'escape') {
-            break;
+            screen.cursor = null;
+            return { value, escaped: key === 'escape' };
         }
         if (key === 'backspace') {
             value = value.slice(0, -1);
@@ -100,8 +126,6 @@ export async function textInput(
             value += key;
         }
     }
-    screen.cursor = null;
-    return value;
 }
 
 // A prompt followed by a line of input, on a plain screen (debug editor).

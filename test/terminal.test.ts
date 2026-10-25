@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { Terminal, isMouse, parseKeys } from '../../engine/terminal.ts';
-import { FakeInput, FakeOutput, mouse } from '../helpers.ts';
+import { Disconnected, Terminal, isMouse, parseKeys } from '../../engine/terminal.ts';
+import { caught, FakeInput, FakeOutput, mouse } from '../helpers.ts';
 
 describe('parseKeys', () => {
     test.each([
@@ -240,4 +240,23 @@ test('refresh clears the terminal and sends the whole screen again', () => {
     term.refresh();
     expect(output.written.startsWith('\x1b[0m\x1b[2J')).toBe(true);
     expect(output.written.length).toBeGreaterThan(2000);
+});
+
+describe('disconnecting', () => {
+    test('waiting for a key fails with Disconnected, now and later', async () => {
+        const { term } = setup();
+        const waiting = term.key();
+        term.disconnect();
+        expect(await caught(waiting)).toBeInstanceOf(Disconnected);
+        expect(await caught(term.key())).toEqual(new Disconnected());
+        expect(term.disconnected).toBe(true);
+        term.disconnect();
+    });
+
+    test('a timed wait fails too', async () => {
+        const { term } = setup();
+        const waiting = term.event(10_000);
+        term.disconnect();
+        expect(await caught(waiting)).toBeInstanceOf(Disconnected);
+    });
 });
