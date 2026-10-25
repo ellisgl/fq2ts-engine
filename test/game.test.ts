@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readConfig, type Content } from '../src/game.ts';
+import { readConfig, type Content, type Figure, type GameOptions } from '../src/game.ts';
+import type { ScriptContext } from '../src/script.ts';
 import type { Player } from '../src/player.ts';
 import { Bestiary, type Monster } from '../src/combat.ts';
 import { Saves } from '../src/saves.ts';
@@ -24,6 +25,10 @@ interface Options {
     debug?: boolean;
     saves?: Saves;
     monsters?: Bestiary;
+    cheats?: boolean;
+    figures?: GameOptions<TestFlags>['figures'];
+    moved?: GameOptions<TestFlags>['moved'];
+    keys?: GameOptions<TestFlags>['keys'];
 }
 
 // A bestiary whose "default" table holds just this monster.
@@ -934,6 +939,95 @@ describe('fixes from the code review', () => {
         saves.save(1, 'Odd', player({ screen: 3, x: 200, y: 5 }));
         const { game } = await play(['down', 'down', 'enter', 'enter', ...LEAVE], { saves });
         expect(game.playing).toMatchObject({ screen: 1, x: 10, y: 10 });
+    });
+});
+
+describe('presence (for a server)', () => {
+    test('with cheats off, the cheat words do nothing', async () => {
+        const { game } = await explore([...'helpme'], { cheats: false });
+        expect(game.playing).toMatchObject({ gold: 20, maxHp: 100 });
+    });
+
+    test('figures are drawn over the map, under the player, on their own background', async () => {
+        const figures = (screen: number): Figure[] => (screen === 1 ? [{ x: 15, y: 5, ch: '☻', fg: 11 }, { x: 10, y: 10, ch: 'X', fg: 4 }, { x: 99, y: 99, ch: '!', fg: 4 }] : []);
+        const { game, term } = setup({ player: player(), figures });
+        term.feed(...RESUME, () => {
+            expect(term.screen.cell(15, 5)).toMatchObject({ ch: '☻', fg: 11, bg: 2 });
+            // The player is drawn on top of anything on their own cell.
+            expect(term.screen.cell(10, 10).ch).toBe('☺');
+            return 'escape';
+        }, 'escape');
+        await run(game, term);
+    });
+
+    test('moved is told where the player is, each time it changes, once they wait for a key', async () => {
+        const places: string[] = [];
+        // (On open ground, clear of Test Quest's triggers.)
+        await explore(['right', 'left', 'r', 'left'], { player: player({ x: 30, y: 15 }), moved: (p) => places.push(`${p.screen},${p.x},${p.y}`) });
+        // (R redraws; the player didn't move, so moved isn't told again.)
+        expect(places).toEqual(['1,30,15', '1,31,15', '1,30,15', '1,29,15']);
+    });
+
+    test('othersChanged redraws the figures, at the next wait for a key', async () => {
+        let others: Figure[] = [];
+        const { game, term } = setup({ player: player(), figures: () => others });
+        term.feed(...RESUME, () => {
+            expect(term.screen.cell(15, 5).ch).toBe(' ');
+            others = [{ x: 15, y: 5, ch: '☻', fg: 11 }];
+            game.othersChanged();
+            // (A key that does nothing, so the game waits again.)
+            return 'z';
+        }, () => {
+            expect(term.screen.cell(15, 5).ch).toBe('☻');
+            others = [];
+            game.othersChanged();
+            return 'z';
+        }, () => {
+            expect(term.screen.cell(15, 5).ch).toBe(' ');
+            return 'escape';
+        }, 'escape');
+        await run(game, term);
+    });
+
+    test('notify shows a message on the map, and keeps it in the back-buffer', async () => {
+        const { game, term } = setup({ player: player() });
+        term.feed(...RESUME, () => {
+            game.notify('Bob enters the realm.');
+            return 'z';
+        }, () => {
+            expect(screenText(term.screen)).toContain('Bob enters the realm.');
+            return 'b';
+        }, () => {
+            expect(screenText(term.screen)).toContain('Bob enters the realm.');
+            return 'escape';
+        }, ...LEAVE);
+        await run(game, term);
+    });
+
+    test('extra keys run their script, and ? lists them', async () => {
+        const keys = {
+            P: {
+                help: "who's online",
+                run: async (g: ScriptContext<TestFlags>) => {
+                    g.cls();
+                    g.print('ONLINE: you');
+                    await g.key();
+                },
+            },
+        };
+        const { game, term } = setup({ player: player(), keys });
+        term.feed(...RESUME, 'p', () => {
+            expect(row(term.screen, 1)).toBe('ONLINE: you');
+            return 'x';
+        }, () => {
+            // Back on the map.
+            expect(term.screen.cell(10, 10).ch).toBe('☺');
+            return '?';
+        }, () => {
+            expect(screenText(term.screen)).toContain("who's online");
+            return 'escape';
+        }, ...LEAVE);
+        await run(game, term);
     });
 });
 

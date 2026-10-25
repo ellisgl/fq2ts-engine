@@ -12,7 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Game, readConfig, type Config, type Content } from './game.ts';
+import { Game, readConfig, type Config, type Content, type GameOptions } from './game.ts';
 import { readBestiary, type Bestiary } from './combat.ts';
 import { readItems, type ItemCatalogue } from './items.ts';
 import { Saves } from './saves.ts';
@@ -166,6 +166,11 @@ export interface GameSetup<F extends FlagRecord> {
     screensaver?: boolean;
     // No save slots (like a server's games).
     noSaves?: boolean;
+    // A server's: cheats, other players drawn, moves reported, more keys.
+    cheats?: boolean;
+    figures?: GameOptions<F>['figures'];
+    moved?: GameOptions<F>['moved'];
+    keys?: GameOptions<F>['keys'];
 }
 
 // A game of any content on a scripted terminal; whatever isn't given comes
@@ -173,7 +178,7 @@ export interface GameSetup<F extends FlagRecord> {
 // a new temporary folder.
 export function makeGameWith<F extends FlagRecord>(
     gameContent: Content<F>,
-    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false }: GameSetup<F> = {},
+    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys }: GameSetup<F> = {},
 ): { game: Game<F>; term: FakeTerminal } {
     const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
     const game = new Game({
@@ -188,6 +193,10 @@ export function makeGameWith<F extends FlagRecord>(
         debug,
         ...(player ? { player } : {}),
         ...(autosave ? { autosave } : {}),
+        ...(cheats === undefined ? {} : { cheats }),
+        ...(figures ? { figures } : {}),
+        ...(moved ? { moved } : {}),
+        ...(keys ? { keys } : {}),
     });
     return { game, term };
 }

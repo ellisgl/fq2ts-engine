@@ -37,6 +37,8 @@ export const MAX_QUEUED = 256;
 interface Waiter {
     deliver(event: InputEvent): void;
     fail(error: Error): void;
+    // Ends the wait as if it had timed out (only waits with a timeout).
+    wake?(): void;
 }
 
 // What waiting for a key throws once the player has gone (their
@@ -300,7 +302,16 @@ export class Terminal {
     // skipped.
     public key(): Promise<Key>;
     public key(timeout: number): Promise<Key | null>;
-    public async key(timeout = Infinity): Promise<Key | null> {
+    public async key(timeout?: number): Promise<Key | null> {
+        if (timeout === undefined) {
+            for (;;) {
+                const event = await this.event();
+                if (!isMouse(event)) {
+                    return event;
+                }
+            }
+        }
+
         const deadline = Date.now() + timeout;
         for (;;) {
             const event = await this.event(timeout === Infinity ? Infinity : deadline - Date.now());
@@ -313,7 +324,7 @@ export class Terminal {
     // Next key press or mouse input, or null after `timeout` milliseconds.
     public event(): Promise<InputEvent>;
     public event(timeout: number): Promise<InputEvent | null>;
-    public event(timeout = Infinity): Promise<InputEvent | null> {
+    public event(timeout?: number): Promise<InputEvent | null> {
         if (this.gone) {
             return Promise.reject(new Disconnected());
         }
@@ -339,17 +350,28 @@ export class Terminal {
                 };
 
                 this.waiters.push(waiter);
-                if (timeout !== Infinity) {
-                    timer = setTimeout(
-                        () => {
-                            this.waiters = this.waiters.filter((w) => w !== waiter);
-                            resolve(null);
-                        },
-                        Math.max(0, timeout),
-                    );
+                if (timeout !== undefined) {
+                    const timedOut = (): void => {
+                        clearTimeout(timer);
+                        this.waiters = this.waiters.filter((w) => w !== waiter);
+                        resolve(null);
+                    };
+                    waiter.wake = timedOut;
+                    if (timeout !== Infinity) {
+                        timer = setTimeout(timedOut, Math.max(0, timeout));
+                    }
                 }
             },
         );
+    }
+
+    // Ends any wait for a key that has a timeout, as if its time were up, so
+    // that whoever is waiting can look at something that's changed (another
+    // player moving, on a server). Waits without a timeout carry on.
+    public wake(): void {
+        for (const waiter of [...this.waiters]) {
+            waiter.wake?.();
+        }
     }
 
     // The player has gone (their connection closed). Anything waiting for a

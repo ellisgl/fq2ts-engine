@@ -171,6 +171,21 @@ describe('Terminal', () => {
         expect(kept).toBe(MAX_QUEUED);
     });
 
+    test('wake ends a wait with a timeout, as if its time were up, and nothing else', async () => {
+        const { term } = setup();
+        const timed = term.key(60_000);
+        const forever = term.key();
+        term.wake();
+        expect(await timed).toBeNull();
+        term.push('k');
+        expect(await forever).toBe('k');
+        // A wait given Infinity is woken too: it has a timeout, just a long
+        // one (the game waits like that when there's no screensaver).
+        const infinite = term.key(Infinity);
+        term.wake();
+        expect(await infinite).toBeNull();
+    });
+
     test("a timed-out wait doesn't take a later key", async () => {
         const { term } = setup();
         await term.key(1);

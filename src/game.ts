@@ -97,6 +97,32 @@ export interface GameOptions<F extends FlagRecord> {
     // Whether an idle player gets the screensaver (a server disconnects
     // them instead). On by default.
     screensaver?: boolean;
+    // Whether the cheat words (HELPME, TITANIC, QUAKE, SDEB) work. On by
+    // default; a server turns them off.
+    cheats?: boolean;
+    // Things drawn over the map of a screen, after its show script: other
+    // players, on a server.
+    figures?(screen: number): readonly Figure[];
+    // Called when the player is somewhere new (a step, another screen, a
+    // script moving them), once the game is waiting for the next key.
+    moved?(player: Player<F>): void;
+    // More keys while exploring (a server's P, L...), by key, each a script.
+    // They're listed by ?, with their help.
+    keys?: Readonly<Record<string, ExtraKey<F>>>;
+}
+
+// Something drawn on a cell of the map.
+export interface Figure {
+    x: number;
+    y: number;
+    ch: string;
+    fg: Color;
+}
+
+export interface ExtraKey<F extends FlagRecord> {
+    // For the list of keys (?), e.g. "who's online".
+    help: string;
+    run: Script<F>;
 }
 
 const MESSAGE_SECONDS = 4;
@@ -165,8 +191,18 @@ export class Game<F extends FlagRecord> {
     // Whether the map is on screen (not a script's or menu's screen).
     private mapShown = false;
     private readonly autosave: ((player: Player<F>) => void) | undefined;
+    private readonly cheats: boolean;
+    private readonly figures: ((screen: number) => readonly Figure[]) | undefined;
+    private readonly moved: ((player: Player<F>) => void) | undefined;
+    private readonly keys: Readonly<Record<string, ExtraKey<F>>>;
+    // Told from outside, for when the game is next waiting for a key: the
+    // figures have moved, and notices to show.
+    private figuresChanged = false;
+    private readonly notices: string[] = [];
+    // Where the player was when `moved` was last told.
+    private lastPlace = '';
 
-    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true }: GameOptions<F>) {
+    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {} }: GameOptions<F>) {
         this.term = term;
         this.screen = term.screen;
         this.world = world;
@@ -201,6 +237,26 @@ export class Game<F extends FlagRecord> {
         this.showPosition = debug;
         this.player = player ?? null;
         this.autosave = autosave;
+        this.cheats = cheats;
+        this.figures = figures;
+        this.moved = moved;
+        this.keys = keys;
+    }
+
+    // ---- Told from outside (on a server, by other players' sessions)
+
+    // The figures have changed: they're redrawn once the game is waiting for
+    // a key on the map (never in the middle of a script).
+    public othersChanged(): void {
+        this.figuresChanged = true;
+        this.term.wake();
+    }
+
+    // A message from outside ("Bob enters the realm."): shown, and kept in
+    // the back-buffer, once the game is waiting for a key on the map.
+    public notify(text: string): void {
+        this.notices.push(text);
+        this.term.wake();
     }
 
     // Whether the map is what's on screen, so things happening on it (other
@@ -434,7 +490,9 @@ export class Game<F extends FlagRecord> {
                 await this.keysHelp();
             } else if (upper === 'S' && this.debug) {
                 await this.settingsAndRedraw();
-            } else {
+            } else if (this.keys[upper]) {
+                await this.runScript(this.keys[upper].run);
+            } else if (this.cheats) {
                 const cheat = CHEATS.find((c) => c.startsWith(upper));
                 if (cheat) {
                     pending = await this.cheat(cheat);
@@ -447,6 +505,7 @@ export class Game<F extends FlagRecord> {
     // screensaver timers running.
     private async waitKey(): Promise<Key> {
         for (;;) {
+            await this.idle();
             const now = Date.now();
             let timeout = this.useScreensaver ? this.term.lastInput + SCREENSAVER_SECONDS * 1000 - now : Infinity;
             if (this.messageText) {
@@ -469,6 +528,26 @@ export class Game<F extends FlagRecord> {
                 await this.screensaver();
                 await this.redraw();
             }
+        }
+    }
+
+    // What's waited for until the game is on the map waiting for a key: the
+    // player's new place to report, figures to redraw, notices to show.
+    private async idle(): Promise<void> {
+        const p = this.playing;
+        const place = `${p.screen},${p.x},${p.y}`;
+        if (place !== this.lastPlace) {
+            this.lastPlace = place;
+            this.moved?.(p);
+        }
+
+        if (this.figuresChanged) {
+            this.figuresChanged = false;
+            await this.redraw();
+        }
+
+        for (const text of this.notices.splice(0)) {
+            this.message(text);
         }
     }
 
@@ -667,6 +746,12 @@ export class Game<F extends FlagRecord> {
             await show(this.script());
         }
 
+        for (const { x, y, ch, fg } of this.figures?.(this.playing.screen) ?? []) {
+            if (x >= 1 && x <= MAP_WIDTH && y >= 1 && y <= MAP_HEIGHT) {
+                this.screen.put(x, y, ch, fg, this.screen.cell(x, y).bg);
+            }
+        }
+
         this.drawPlayer();
         this.mapShown = true;
     }
@@ -754,7 +839,8 @@ export class Game<F extends FlagRecord> {
 
     private async keysHelp(): Promise<void> {
         this.leaveMap();
-        await scrollText(this.term, PLAY_HELP, { title: 'Keys' });
+        const extra = Object.entries(this.keys).map(([key, { help }]) => `{white}${key.padEnd(16)}{gray}${escapeMarkup(help)}`);
+        await scrollText(this.term, [...PLAY_HELP.slice(0, -1), ...extra, ...PLAY_HELP.slice(-1)], { title: 'Keys' });
         await this.redraw();
     }
 
