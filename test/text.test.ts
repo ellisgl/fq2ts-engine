@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { draw, parse, strip, width } from '../../engine/text.ts';
+import { draw, escapeMarkup, parse, strip, width } from '../../engine/text.ts';
 import { Screen } from '../../engine/screen.ts';
 import { row } from '../helpers.ts';
 
@@ -115,4 +115,11 @@ describe('fixes from the code review', () => {
         expect(row(screen, 2)).toBe('');
         expect(end.y).toBe(1);
     });
+});
+
+test('escapeMarkup makes text show its braces as they are', () => {
+    const screen = new Screen();
+    draw(screen, `{green}${escapeMarkup('{red}Bob {{x}}')}`);
+    expect(row(screen, 1)).toBe('{red}Bob {{x}}');
+    expect(screen.cell(1, 1).fg).toBe(2);
 });

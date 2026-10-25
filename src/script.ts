@@ -203,6 +203,12 @@ export class ScriptContext<F extends FlagRecord> {
         return this.player.screen;
     }
 
+    // The script is drawing a screen of its own over the map.
+    private takeScreen(): void {
+        this.tookScreen = true;
+        this.game.leaveMap();
+    }
+
     // ---- Talking to the player
 
     // A message in the status bar for a few seconds.
@@ -213,12 +219,12 @@ export class ScriptContext<F extends FlagRecord> {
     public cls(): void {
         this.screen.clear();
         this.printRow = 1;
-        this.tookScreen = true;
+        this.takeScreen();
     }
 
     // Prints lines of markup from the current print row downwards.
     public print(...lines: string[]): void {
-        this.tookScreen = true;
+        this.takeScreen();
         for (const line of lines) {
             const end = draw(this.screen, line, { y: this.printRow });
             this.printRow = Math.min(end.y + 1, HEIGHT);
@@ -247,7 +253,7 @@ export class ScriptContext<F extends FlagRecord> {
             return -1;
         }
 
-        this.tookScreen = true;
+        this.takeScreen();
         const y = this.printRow;
         this.printRow = Math.min(y + shown.length, HEIGHT);
         const picked = await choose(this.term, shown.map((option) => option.text), { y });
@@ -256,7 +262,7 @@ export class ScriptContext<F extends FlagRecord> {
 
     // Shows lines of text in a full-screen window that scrolls.
     public async scroll(lines: readonly string[], title = ''): Promise<void> {
-        this.tookScreen = true;
+        this.takeScreen();
         await scrollText(this.term, lines, { title });
     }
 

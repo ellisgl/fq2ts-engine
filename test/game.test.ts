@@ -1020,3 +1020,90 @@ describe('fixes from the code review', () => {
         expect(game.playing).toMatchObject({ screen: 1, x: 10, y: 10 });
     });
 });
+
+describe('multiplayer groundwork', () => {
+    test('autosave gets the player after a screen change, a script and leaving the map', async () => {
+        const saved: { screen: number; x: number; met: boolean }[] = [];
+        const autosave = (p: Player<TestFlags>): void => {
+            saved.push({ screen: p.screen, x: p.x, met: p.flags.met });
+        };
+        const { game, term } = makeGameWith(testContent, {
+            world,
+            monsters: onlyMonster(monster()),
+            player: player(),
+            autosave,
+            steps: [...RESUME, 'down', ...LEAVE],
+        });
+        await run(game, term);
+        expect(saved).toEqual([
+            // Through the door to screen 3...
+            { screen: 3, x: 5, met: false },
+            // ...where the tile's script runs on arrival...
+            { screen: 3, x: 5, met: true },
+            // ...then back to the title menu.
+            { screen: 3, x: 5, met: true },
+        ]);
+    });
+
+    test('autosave after a script that only changes the player', async () => {
+        const saved: number[] = [];
+        const { game, term } = makeGameWith(testContent, {
+            world,
+            monsters: onlyMonster(monster()),
+            player: player({ x: 11, y: 10 }),
+            autosave: (p) => saved.push(p.flags.visits),
+            steps: [...RESUME, 'right', 'escape', 'escape'],
+        });
+        await run(game, term);
+        expect(saved).toEqual([1, 1]);
+    });
+
+    test('showingMap is only true while the map is on screen', async () => {
+        const { game, term } = setup({ player: player() });
+        expect(game.showingMap).toBe(false);
+        term.feed(
+            ...RESUME,
+            () => {
+                expect(game.showingMap).toBe(true);
+                return 'i';
+            },
+            () => {
+                expect(game.showingMap).toBe(false);
+                return 'x';
+            },
+            () => {
+                expect(game.showingMap).toBe(true);
+                return 'left';
+            },
+            () => {
+                // The sign's script took the screen.
+                expect(game.showingMap).toBe(false);
+                return 'x';
+            },
+            () => {
+                expect(game.showingMap).toBe(true);
+                return 'escape';
+            },
+            () => {
+                expect(game.showingMap).toBe(false);
+                return 'escape';
+            },
+        );
+        await run(game, term);
+    });
+
+    test('screen names with braces show as they are', async () => {
+        const odd = makeWorld(makeMap(1, 1, ['10,9']), makeMap(2, 5), makeMap(3, 2));
+        odd.setName(1, '{red}Trap');
+        const { game, term } = makeGameWith(testContent, { world: odd, monsters: onlyMonster(monster()), player: player() });
+        term.feed(
+            ...RESUME,
+            () => {
+                expect(row(term.screen, 23)).toContain('{red}Trap');
+                return 'escape';
+            },
+            'escape',
+        );
+        await run(game, term);
+    });
+});

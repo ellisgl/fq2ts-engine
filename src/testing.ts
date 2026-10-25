@@ -178,11 +178,12 @@ interface GameSetup<F extends FlagRecord> {
     debug?: boolean;
     monsters?: Bestiary;
     items?: ItemCatalogue;
+    autosave?(player: Player<F>): void;
 }
 
 export function makeGameWith<F extends FlagRecord>(
     gameContent: Content<F>,
-    { steps = [], fallback, player, world, saves, debug = false, monsters = bestiary, items = itemCatalogue }: GameSetup<F> = {},
+    { steps = [], fallback, player, world, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave }: GameSetup<F> = {},
 ): { game: Game<F>; term: FakeTerminal } {
     const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
     const game = new Game({
@@ -195,6 +196,7 @@ export function makeGameWith<F extends FlagRecord>(
         saves: saves ?? new Saves(tempDir()),
         debug,
         ...(player ? { player } : {}),
+        ...(autosave ? { autosave } : {}),
     });
     return { game, term };
 }

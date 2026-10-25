@@ -1,6 +1,6 @@
 // The game: title menu, exploring the world, and the built-in screens.
 
-import { draw } from './text.ts';
+import { draw, escapeMarkup } from './text.ts';
 import { at } from './assert.ts';
 import { statusBar, textInput, prompt, scrollText } from './ui.ts';
 import { MAP_WIDTH, MAP_HEIGHT, GRID_WIDTH, GRID_HEIGHT, WILD_TERRAIN, gridPosition, type World } from './world.ts';
@@ -88,6 +88,10 @@ export interface GameOptions<F extends FlagRecord> {
     // A game already in progress (otherwise the player starts one from the
     // title menu).
     player?: Player<F>;
+    // Called whenever the player's state should be kept: after a screen
+    // change, a script or a fight, and on leaving the map. (Single-player
+    // saves by slot instead; a server saves here.)
+    autosave?(player: Player<F>): void;
 }
 
 const MESSAGE_SECONDS = 4;
@@ -152,8 +156,11 @@ export class Game<F extends FlagRecord> {
     // Messages only wait behind others from the same turn.
     private turn = 0;
     private messageTurn = -1;
+    // Whether the map is on screen (not a script's or menu's screen).
+    private mapShown = false;
+    private readonly autosave: ((player: Player<F>) => void) | undefined;
 
-    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player }: GameOptions<F>) {
+    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave }: GameOptions<F>) {
         this.term = term;
         this.screen = term.screen;
         this.world = world;
@@ -186,6 +193,30 @@ export class Game<F extends FlagRecord> {
         this.debug = debug;
         this.showPosition = debug;
         this.player = player ?? null;
+        this.autosave = autosave;
+    }
+
+    // Whether the map is what's on screen, so things happening on it (other
+    // players moving) can be drawn.
+    public get showingMap(): boolean {
+        return this.mapShown;
+    }
+
+    // Something is about to cover the map with a screen of its own.
+    public leaveMap(): void {
+        this.mapShown = false;
+    }
+
+    private clearScreen(): void {
+        this.leaveMap();
+        this.screen.clear();
+    }
+
+    // Hands the player's state to autosave, if there is one.
+    private checkpoint(): void {
+        if (this.player) {
+            this.autosave?.(this.player);
+        }
     }
 
     // The player of the game in progress. Only exploring and scripts use it,
@@ -248,7 +279,7 @@ export class Game<F extends FlagRecord> {
         const { screen } = this;
         const { options, selectedColor, color } = title.menu;
         for (;;) {
-            screen.clear();
+            this.clearScreen();
 
             for (const line of title.art(this.config)) {
                 draw(screen, line);
@@ -294,13 +325,13 @@ export class Game<F extends FlagRecord> {
     private async newGame(): Promise<void> {
         this.player = this.newPlayer();
         this.noclip = false;
-        this.screen.clear();
+        this.clearScreen();
         await this.content.newGame(this.script());
         await this.play({ arrive: true });
     }
 
     private async help(): Promise<void> {
-        this.screen.clear();
+        this.clearScreen();
         for (const line of this.content.help(this.config)) {
             draw(this.screen, line);
         }
@@ -309,7 +340,7 @@ export class Game<F extends FlagRecord> {
     }
 
     private credits(): void {
-        this.screen.clear();
+        this.clearScreen();
         const frame = Math.floor(Math.random() * 7) + 1;
         for (const line of this.content.credits(this.config, frame)) {
             draw(this.screen, line);
@@ -339,6 +370,8 @@ export class Game<F extends FlagRecord> {
             }
 
             if (key === 'escape') {
+                this.leaveMap();
+                this.checkpoint();
                 return;
             }
 
@@ -439,6 +472,7 @@ export class Game<F extends FlagRecord> {
         this.trackMapScreen();
         await this.redraw();
         this.announce(from);
+        this.checkpoint();
         await this.arrive();
     }
 
@@ -447,7 +481,7 @@ export class Game<F extends FlagRecord> {
     private announce(from: number | null): void {
         const name = this.world.name(this.playing.screen);
         if (name && (from === null || this.world.name(from) !== name)) {
-            this.message(`{white}${name}`);
+            this.message(`{white}${escapeMarkup(name)}`);
         }
     }
 
@@ -487,6 +521,7 @@ export class Game<F extends FlagRecord> {
             await this.redraw();
         }
 
+        this.checkpoint();
         return g.tookScreen || before !== `${p.screen},${p.x},${p.y}`;
     }
 
@@ -523,6 +558,8 @@ export class Game<F extends FlagRecord> {
         } else {
             this.drawStatus();
         }
+
+        this.checkpoint();
     }
 
     // The script a monster runs after a fight that ended this way, if any.
@@ -584,6 +621,7 @@ export class Game<F extends FlagRecord> {
         }
 
         this.drawPlayer();
+        this.mapShown = true;
     }
 
     public drawTile(x: number, y: number): void {
@@ -661,25 +699,28 @@ export class Game<F extends FlagRecord> {
     // ---- Built-in screens
 
     private async backBuffer(): Promise<void> {
+        this.leaveMap();
         const lines = this.messageLog.length ? this.messageLog : ['{darkgray}Nothing has happened yet.'];
         await scrollText(this.term, lines, { title: 'Back-buffer: the last messages', from: 'bottom' });
         await this.redraw();
     }
 
     private async keysHelp(): Promise<void> {
+        this.leaveMap();
         await scrollText(this.term, PLAY_HELP, { title: 'Keys' });
         await this.redraw();
     }
 
     private async inventory(): Promise<void> {
-        this.screen.clear();
+        this.clearScreen();
         await this.content.inventory(this.script());
         await this.redraw();
+        this.checkpoint();
     }
 
     private async worldMap(): Promise<void> {
         const { screen } = this;
-        screen.clear();
+        this.clearScreen();
         for (let n = 1; n <= GRID_WIDTH * GRID_HEIGHT; n++) {
             const [ch, fg, bg] = at(WORLD_MAP_CELLS, this.world.kind(n) ?? 0);
             const { col, row } = gridPosition(n);
@@ -701,7 +742,7 @@ export class Game<F extends FlagRecord> {
     // `selectable` allows. Returns null if they press Escape.
     private async pickSlot(title: string, selectable: (slot: SlotInfo) => boolean): Promise<SlotInfo | null> {
         const { screen } = this;
-        screen.clear();
+        this.clearScreen();
         screen.text(30, 9, title, 10, 0);
         screen.text(30, 17, 'Enter a Choice.', 4, 0);
         const slots = this.saves.list();
@@ -807,7 +848,7 @@ export class Game<F extends FlagRecord> {
     private async settings(): Promise<void> {
         const { screen, term } = this;
         const p = this.playing;
-        screen.clear();
+        this.clearScreen();
         screen.text(1, 1, 'Current Settings:', 15, 0);
         SETTINGS.forEach(([label, key], i) => {
             screen.text(1, 3 + i, `${label}:`.padEnd(14) + String(p[key]), 15, 0);
@@ -857,7 +898,7 @@ export class Game<F extends FlagRecord> {
             const flags: FlagRecord = p.flags;
             for (const [name, value] of Object.entries(flags)) {
                 if (y > 23) {
-                    screen.clear();
+                    this.clearScreen();
                     y = 1;
                 }
 
@@ -873,7 +914,7 @@ export class Game<F extends FlagRecord> {
     private async screensaver(): Promise<void> {
         const { screen, term } = this;
         const text = 'Screen Protection System, Press any key to continue...';
-        screen.clear();
+        this.clearScreen();
         for (;;) {
             const y = Math.floor(Math.random() * 25) + 1;
             // Scroll in from the right, then off to the left.

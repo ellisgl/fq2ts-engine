@@ -91,6 +91,12 @@ export function width(text: string): number {
     return n;
 }
 
+// Text from players (names, and later chat and mail) made safe to put in
+// markup: its braces are shown as they are instead of changing colours.
+export function escapeMarkup(text: string): string {
+    return text.replaceAll('{', '{{');
+}
+
 export function strip(text: string): string {
     return parse(text)
         .map((t) => (t.type === 'text' ? t.text : t.type === 'sp' ? ' '.repeat(t.n) : ''))
