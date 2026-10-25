@@ -92,6 +92,9 @@ export interface TextInputOptions {
     filter?(ch: string): boolean;
     // Shown in place of each character typed (for passwords).
     mask?: string;
+    // The most characters that can be typed (default: as many as fit). Past
+    // what fits, the box shows the end of what's been typed.
+    max?: number;
 }
 
 // A one-line text box. `length` includes the cursor cell, as in the
@@ -108,15 +111,16 @@ export async function askText(term: Terminal, options: TextInputOptions): Promis
 
 async function editText(
     term: Terminal,
-    { x, y, length, value = '', fg = WHITE, bg = BLUE, filter = () => true, mask }: TextInputOptions,
+    { x, y, length, value = '', fg = WHITE, bg = BLUE, filter = () => true, mask, max = length - 1 }: TextInputOptions,
 ): Promise<{ value: string; escaped: boolean }> {
     const { screen } = term;
-    const max = Math.max(0, length - 1);
+    const fits = Math.max(0, length - 1);
     for (;;) {
         const typed = cellCount(value);
-        const shown = mask === undefined ? value : mask.repeat(typed);
-        screen.text(x, y, shown + ' '.repeat(Math.max(0, length - typed)), fg, bg);
-        screen.cursor = { x: Math.min(x + typed, WIDTH), y };
+        const visible = typed > fits ? graphemes(value).slice(typed - fits) : graphemes(value);
+        const shown = mask === undefined ? visible.join('') : mask.repeat(visible.length);
+        screen.text(x, y, shown + ' '.repeat(Math.max(0, length - visible.length)), fg, bg);
+        screen.cursor = { x: Math.min(x + visible.length, WIDTH), y };
         const key = await term.key();
         if (key === 'enter' || key === 'escape') {
             screen.cursor = null;

@@ -199,6 +199,15 @@ test('the status bar cuts off a message too long for it, keeping its ends', () =
     expect(row(screen, 24)).toBe('z');
 });
 
+test('textInput can take more than fits, showing the end of it', async () => {
+    const term = new FakeTerminal([...'abcdefgh', () => {
+        expect(row(term.screen, 1).slice(0, 5)).toBe('cdef');
+        expect(term.screen.cursor).toEqual({ x: 5, y: 1 });
+        return 'enter';
+    }]);
+    expect(await textInput(term, { x: 1, y: 1, length: 5, max: 6 })).toBe('abcdef');
+});
+
 describe('askText and masks', () => {
     test('askText gives the text on Enter and null on Escape', async () => {
         expect(await askText(new FakeTerminal(typed('hi')), { x: 1, y: 1, length: 10 })).toBe('hi');
