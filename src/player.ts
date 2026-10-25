@@ -1,7 +1,7 @@
 // The player's state: what gets saved. The flags are up to the content;
 // the engine only knows they are named booleans, numbers and strings.
 
-import { record, integer, boolean, field } from './validate.ts';
+import { record, integer, boolean, field, oneOf, string } from './validate.ts';
 import type { ItemCatalogue, ItemDef, ItemKind } from './items.ts';
 
 export type FlagValue = boolean | number | string;
@@ -9,7 +9,13 @@ export type FlagRecord = Record<string, FlagValue>;
 
 export type Slot = 'weapon' | 'armour';
 
+export const SEXES = ['male', 'female'] as const;
+export type Sex = (typeof SEXES)[number];
+
 export interface Player<F extends FlagRecord> {
+    // Chosen when a game starts ("" in saves from before there were names).
+    name: string;
+    sex: Sex;
     screen: number;
     x: number;
     y: number;
@@ -105,6 +111,8 @@ export function restorePlayer<F extends FlagRecord>(start: Player<F>, value: unk
     const slot = (key: Slot, kind: ItemKind): string | null => (r[key] === undefined ? start[key] : restoreSlot(r[key], kind, items, catalogue));
 
     return {
+        name: field(r, 'name', path, string, start.name),
+        sex: field(r, 'sex', path, oneOf(SEXES), start.sex),
         screen: int('screen'),
         x: int('x'),
         y: int('y'),

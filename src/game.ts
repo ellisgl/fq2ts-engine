@@ -754,7 +754,9 @@ export class Game<F extends FlagRecord> {
 
         const y = 10 + slot.slot;
         this.screen.fillRow(y);
-        const name = (await textInput(this.term, { x: 30, y, length: 16, value: slot.name ?? '', fg: 15, bg: 0 })).trim();
+        // An empty slot suggests the player's name.
+        const suggested = slot.name ?? this.player.name.slice(0, 15);
+        const name = (await textInput(this.term, { x: 30, y, length: 16, value: suggested, fg: 15, bg: 0 })).trim();
         this.saves.save(slot.slot, name && name !== 'Empty' ? name : 'NoName', this.player);
     }
 

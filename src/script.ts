@@ -14,7 +14,7 @@ import { choose, scrollText, textInput } from './ui.ts';
 import { fight, type FightResult, type Monster } from './combat.ts';
 import { HEIGHT, type Screen } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
-import { equipped, type FlagRecord, type Player, type Slot } from './player.ts';
+import { equipped, type FlagRecord, type Player, type Sex, type Slot } from './player.ts';
 import { count, effectOf, equip, gearOf, give, take, wear, type ItemDef } from './items.ts';
 import { buyMenu, sellMenu, type BuyOptions, type SellOptions } from './shop.ts';
 import type { Game } from './game.ts';
@@ -50,6 +50,27 @@ export class ScriptContext<F extends FlagRecord> {
 
     private get player(): Player<F> {
         return this.game.playing;
+    }
+
+    public get name(): string {
+        return this.player.name;
+    }
+
+    public set name(value: string) {
+        this.player.name = value.trim();
+    }
+
+    public get sex(): Sex {
+        return this.player.sex;
+    }
+
+    public set sex(value: Sex) {
+        this.player.sex = value;
+    }
+
+    // One of two words, by the player's sex: g.bySex('boy', 'girl').
+    public bySex(male: string, female: string): string {
+        return this.player.sex === 'male' ? male : female;
     }
 
     public get version(): string {

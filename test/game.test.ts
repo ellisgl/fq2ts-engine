@@ -20,6 +20,8 @@ type TestFlags = { visits: number; met: boolean; name: string };
 const world = makeWorld(makeMap(1, 1, ['10,9']), makeMap(2, 5, ['1,5']), makeMap(3, 2), makeMap(82, 1));
 
 const START: Player<TestFlags> = {
+    name: '',
+    sex: 'male',
     screen: 1,
     x: 10,
     y: 10,
@@ -588,6 +590,12 @@ describe('saving', () => {
         await play(['down', 'enter', 'enter', ...typed('Hero'), 'escape'], { saves, player: player({ gold: 99 }) });
         expect(saves.list()[0]).toEqual({ slot: 1, name: 'Hero' });
         expect(saves.load(1)).toMatchObject({ gold: 99 });
+    });
+
+    test('an empty slot suggests the player\'s name', async () => {
+        const saves = new Saves(tempDir());
+        await play(['down', 'enter', 'enter', 'enter', 'escape'], { saves, player: player({ name: 'Ellis' }) });
+        expect(saves.list()[0]?.name).toBe('Ellis');
     });
 
     test('a blank name is saved as NoName', async () => {

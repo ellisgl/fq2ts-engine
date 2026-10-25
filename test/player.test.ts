@@ -5,6 +5,8 @@ import { itemCatalogue as items } from '../helpers.ts';
 type TestFlags = { seen: boolean; count: number; name: string };
 
 const start: Player<TestFlags> = {
+    name: '',
+    sex: 'male',
     screen: 1,
     x: 2,
     y: 3,
@@ -107,4 +109,18 @@ describe('restorePlayer', () => {
 test('equipped gives the item in a slot', () => {
     expect(equipped({ weapon: 'stick', armour: null }, 'weapon', items)?.name).toBe('Stick');
     expect(equipped({ weapon: 'stick', armour: null }, 'armour', items)).toBeNull();
+});
+
+describe('names and sex', () => {
+    test('are restored, and default to the start player\'s', () => {
+        expect(restorePlayer(start, { name: 'Ellis', sex: 'female' }, items)).toMatchObject({ name: 'Ellis', sex: 'female' });
+        expect(restorePlayer(start, {}, items)).toMatchObject({ name: '', sex: 'male' });
+    });
+
+    test.each([
+        [{ name: 7 }, 'save.name: expected a string'],
+        [{ sex: 'other' }, 'save.sex: expected one of male, female'],
+    ])('bad values are refused: %p', (saved, message) => {
+        expect(() => restorePlayer(start, saved, items)).toThrow(message);
+    });
 });

@@ -295,3 +295,14 @@ describe('ScriptContext: choices and scrolling', () => {
         expect(g.tookScreen).toBe(true);
     });
 });
+
+describe('ScriptContext: name and sex', () => {
+    test('name is trimmed, and bySex picks a word', () => {
+        const { g, game } = scriptContext();
+        g.name = '  Ellis ';
+        expect(game.playing.name).toBe('Ellis');
+        expect(g.bySex('boy', 'girl')).toBe('boy');
+        g.sex = 'female';
+        expect([g.sex, g.bySex('boy', 'girl')]).toEqual(['female', 'girl']);
+    });
+});
