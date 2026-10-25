@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
-import { fight, monsterDamage, pickMonster, playerDamage, readBestiary, readMonster, type EncounterTable, type Fighter, type Gear } from '../../engine/combat.ts';
+import { fight, monsterDamage, pickMonster, playerDamage, readBestiary, readMonster, type EncounterTable, type Fighter, type Gear } from '@fq2js/engine/combat';
 import { FakeTerminal, monster, readData, row } from '../helpers.ts';
 
 let random: Mock<() => number> | null = null;

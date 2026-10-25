@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { COLORS, HEIGHT, Screen, WIDTH } from '../../engine/screen.ts';
-import { row } from '../helpers.ts';
+import { COLORS, HEIGHT, Screen, WIDTH } from '../src/screen.ts';
+import { row } from '../src/testing.ts';
 
 describe('Screen', () => {
     test('starts blank, light gray on black', () => {

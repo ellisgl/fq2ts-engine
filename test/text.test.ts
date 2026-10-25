@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { draw, escapeMarkup, parse, strip, width } from '../../engine/text.ts';
-import { Screen } from '../../engine/screen.ts';
-import { row } from '../helpers.ts';
+import { draw, escapeMarkup, parse, strip, width } from '../src/text.ts';
+import { Screen } from '../src/screen.ts';
+import { row } from '../src/testing.ts';
 
 describe('parse', () => {
     test('plain text', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { at, cellAt } from '../../engine/assert.ts';
+import { at, cellAt } from '../src/assert.ts';
 
 describe('at', () => {
     test('returns the item at an index', () => {

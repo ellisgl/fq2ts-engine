@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ItemCatalogue, count, effectOf, equip, gearOf, give, readItems, take, wear, type Carrier } from '../../engine/items.ts';
+import { ItemCatalogue, count, effectOf, equip, gearOf, give, readItems, take, wear, type Carrier } from '@fq2js/engine/items';
 import { itemCatalogue as items, readData } from '../helpers.ts';
 
 const carrier = (changes: Partial<Carrier> = {}): Carrier => ({ items: {}, weapon: null, armour: null, ...changes });

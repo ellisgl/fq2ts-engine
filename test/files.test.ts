@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeFileAtomic } from '../../engine/files.ts';
-import { tempDir } from '../helpers.ts';
+import { writeFileAtomic } from '../src/files.ts';
+import { tempDir } from '../src/testing.ts';
 
 test('writeFileAtomic writes or replaces a file and leaves nothing else behind', () => {
     const dir = tempDir();

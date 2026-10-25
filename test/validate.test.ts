@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { InvalidData, array, boolean, field, integer, number, oneOf, record, string } from '../../engine/validate.ts';
+import { InvalidData, array, boolean, field, integer, number, oneOf, record, string } from '../src/validate.ts';
 
 describe('record', () => {
     test('accepts plain objects', () => {

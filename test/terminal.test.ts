@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { Disconnected, MAX_QUEUED, Terminal, isMouse, parseKeys } from '../../engine/terminal.ts';
-import { caught, FakeInput, FakeOutput, mouse } from '../helpers.ts';
+import { Disconnected, MAX_QUEUED, Terminal, isMouse, parseKeys } from '../src/terminal.ts';
+import { caught, FakeInput, FakeOutput, mouse } from '../src/testing.ts';
 
 describe('parseKeys', () => {
     test.each([

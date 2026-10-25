@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SLOTS, Saves } from '../../engine/saves.ts';
-import { tempDir } from '../helpers.ts';
+import { SLOTS, Saves } from '../src/saves.ts';
+import { tempDir } from '../src/testing.ts';
 
 describe('Saves', () => {
     test('every slot starts empty', () => {

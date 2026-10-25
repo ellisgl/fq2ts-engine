@@ -187,21 +187,25 @@ export class Terminal {
     private lastInputAt = Date.now();
     public onInterrupt: () => void = () => {};
 
-    public constructor({ input = process.stdin, output = process.stdout }: { input?: TerminalInput; output?: TerminalOutput } = {}) {
+    private readonly name: string;
+
+    // `name` is the game's, for the messages when the terminal won't do.
+    public constructor({ input = process.stdin, output = process.stdout, name = 'This game' }: { input?: TerminalInput; output?: TerminalOutput; name?: string } = {}) {
         this.input = input;
         this.output = output;
+        this.name = name;
     }
 
     // `mouse` turns on mouse reporting (the game doesn't use the mouse; the
     // editor does).
     public start({ mouse = false }: { mouse?: boolean } = {}): void {
         if (!this.input.isTTY || !this.output.isTTY) {
-            throw new Error('Final Quest 2 needs an interactive terminal.');
+            throw new Error(`${this.name} needs an interactive terminal.`);
         }
 
         const { columns, rows } = this.output;
         if (columns < WIDTH || rows < HEIGHT) {
-            throw new Error(`Final Quest 2 needs a terminal of at least ${WIDTH}x${HEIGHT} (this one is ${columns}x${rows}).`);
+            throw new Error(`${this.name} needs a terminal of at least ${WIDTH}x${HEIGHT} (this one is ${columns}x${rows}).`);
         }
 
         this.active = true;

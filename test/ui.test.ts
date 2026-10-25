@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { askText, choose, prompt, statusBar, textInput, scrollText } from '../../engine/ui.ts';
-import { Screen } from '../../engine/screen.ts';
-import { FakeTerminal, mouse, row, typed, type Step } from '../helpers.ts';
-import type { Key } from '../../engine/terminal.ts';
+import { askText, choose, prompt, statusBar, textInput, scrollText } from '../src/ui.ts';
+import { Screen } from '../src/screen.ts';
+import { FakeTerminal, mouse, row, typed, type Step } from '../src/testing.ts';
+import type { Key } from '../src/terminal.ts';
 
 test('statusBar draws shaded ends and centred white-on-blue text', () => {
     const screen = new Screen();

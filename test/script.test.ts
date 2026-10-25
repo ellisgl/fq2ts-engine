@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
-import { HEIGHT } from '../../engine/screen.ts';
-import { readItems } from '../../engine/items.ts';
+import { HEIGHT } from '@fq2js/engine/screen';
+import { readItems } from '@fq2js/engine/items';
 import { makeMap, makeWorld, monster, newPlayer, row, scriptContext, typed } from '../helpers.ts';
 
 let random: Mock<() => number> | null = null;

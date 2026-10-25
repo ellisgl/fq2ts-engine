@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { KINDS, MAP_HEIGHT, MAP_KINDS, MAP_WIDTH, TERRAINS, TERRAIN_CODES, WILD_TERRAIN, World, blankMap, gridPosition, inferTerrain, mapFileName, readMap, writeMap, type MapCell } from '../../engine/world.ts';
+import { KINDS, MAP_HEIGHT, MAP_KINDS, MAP_WIDTH, TERRAINS, TERRAIN_CODES, WILD_TERRAIN, World, blankMap, gridPosition, inferTerrain, mapFileName, readMap, writeMap, type MapCell } from '@fq2js/engine/world';
 import { gameWorld, makeMap, makeWorld, tempDir } from '../helpers.ts';
 
 // A map file as stored in data/maps, with `changes` applied.

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readConfig, type Content } from '../../engine/game.ts';
-import type { Player } from '../../engine/player.ts';
-import { Bestiary, type Monster } from '../../engine/combat.ts';
-import { Saves } from '../../engine/saves.ts';
-import type { Key } from '../../engine/terminal.ts';
+import { readConfig, type Content } from '@fq2js/engine/game';
+import type { Player } from '@fq2js/engine/player';
+import { Bestiary, type Monster } from '@fq2js/engine/combat';
+import { Saves } from '@fq2js/engine/saves';
+import type { Key } from '@fq2js/engine/terminal';
 import { title, help, credits, worldMapLegend } from '../../content/ui.ts';
 import { caught, monster, makeGameWith, makeMap, makeWorld, readData, row, screenText, tempDir, typed, type FakeTerminal, type Step } from '../helpers.ts';
 

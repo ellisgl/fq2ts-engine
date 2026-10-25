@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { REPLACEMENT, cellCount, cells, codePointWidth, fitsCell, graphemes } from '../../engine/chars.ts';
+import { REPLACEMENT, cellCount, cells, codePointWidth, fitsCell, graphemes } from '../src/chars.ts';
 
 describe('fitsCell', () => {
     test.each([
