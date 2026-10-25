@@ -11,4 +11,6 @@ back scripted key presses, and small maps, worlds and monsters.
 triggers, data in [fixture/](src/fixture/)) that the engine, server and tools
 are tested on.
 
-See [games/fq2/](../../games/fq2/) for a game built on it.
+[docs/making-a-game.md](../../docs/making-a-game.md) is the guide to making a
+game with it, built around [Hello Quest](../../games/hello/), the smallest
+whole game. [Final Quest 2](../../games/fq2/) is a bigger one.
