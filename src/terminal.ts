@@ -29,6 +29,11 @@ export type InputEvent = Key | MouseInput;
 
 export const isMouse = (event: InputEvent): event is MouseInput => typeof event !== 'string';
 
+// The most keys and mouse events kept waiting to be read. More than this
+// and the game isn't keeping up (or someone is flooding it), so the rest
+// are dropped.
+export const MAX_QUEUED = 256;
+
 interface Waiter {
     deliver(event: InputEvent): void;
     fail(error: Error): void;
@@ -282,7 +287,9 @@ export class Terminal {
             return;
         }
 
-        this.queue.push(event);
+        if (this.queue.length < MAX_QUEUED) {
+            this.queue.push(event);
+        }
     }
 
     // Next key press, or null after `timeout` milliseconds. Mouse input is

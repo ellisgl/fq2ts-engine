@@ -41,7 +41,10 @@ export function codePointWidth(ch: string): number {
     return 1;
 }
 
+// Answers already worked out. Kept small: a client can send endless
+// different graphemes (any letter with any stack of accents).
 const known = new Map<string, boolean>();
+const KNOWN_LIMIT = 4096;
 
 // Whether this can go in a cell: one grapheme, one column wide.
 export function fitsCell(grapheme: string): boolean {
@@ -49,6 +52,9 @@ export function fitsCell(grapheme: string): boolean {
     if (fits === undefined) {
         const [base = '', ...marks] = [...grapheme];
         fits = codePointWidth(base) === 1 && marks.every((m) => MARK.test(m) && m !== EMOJI_STYLE);
+        if (known.size >= KNOWN_LIMIT) {
+            known.clear();
+        }
         known.set(grapheme, fits);
     }
 

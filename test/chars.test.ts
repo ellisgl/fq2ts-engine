@@ -28,6 +28,13 @@ describe('fitsCell', () => {
     });
 });
 
+test('answers stay right after the cache of answers fills and is cleared', () => {
+    for (let i = 0; i < 5000; i++) {
+        fitsCell(`a${'\u0301'.repeat(i % 50)}${String.fromCodePoint(0x300 + (i % 100))}`);
+    }
+    expect([fitsCell('é'), fitsCell('中'), fitsCell('x')]).toEqual([true, false, true]);
+});
+
 test('codePointWidth', () => {
     expect([codePointWidth('a'), codePointWidth('́'), codePointWidth('中'), codePointWidth('😀'), codePointWidth('\x07')]).toEqual([1, 0, 2, 2, 0]);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { Disconnected, Terminal, isMouse, parseKeys } from '../../engine/terminal.ts';
+import { Disconnected, MAX_QUEUED, Terminal, isMouse, parseKeys } from '../../engine/terminal.ts';
 import { caught, FakeInput, FakeOutput, mouse } from '../helpers.ts';
 
 describe('parseKeys', () => {
@@ -157,6 +157,18 @@ describe('Terminal', () => {
         const { term } = setup();
         expect(await term.key(5)).toBeNull();
         expect(await term.key(-10)).toBeNull();
+    });
+
+    test('keys typed ahead past the limit are dropped', async () => {
+        const { term } = setup();
+        for (let i = 0; i < MAX_QUEUED + 10; i++) {
+            term.push('k');
+        }
+        let kept = 0;
+        while (await term.key(1) !== null) {
+            kept++;
+        }
+        expect(kept).toBe(MAX_QUEUED);
     });
 
     test("a timed-out wait doesn't take a later key", async () => {
