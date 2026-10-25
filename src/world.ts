@@ -35,15 +35,49 @@ export interface Tile {
   bg: Color;
 }
 
+// What the ground of a cell is (whether it's solid is separate). Random
+// monsters are only met on wild ground: grass, forest and mountains.
+export const TERRAINS = ["grass", "forest", "mountain", "water", "road", "floor", "structure"] as const;
+export type Terrain = (typeof TERRAINS)[number];
+
+// How terrain is written in map files, one character per cell.
+export const TERRAIN_CODES: Readonly<Record<Terrain, string>> = {
+  grass: ".",
+  forest: "f",
+  mountain: "m",
+  water: "w",
+  road: "r",
+  floor: "_",
+  structure: "#",
+};
+
+export const WILD_TERRAIN: readonly Terrain[] = ["grass", "forest", "mountain"];
+
 // Everything about one cell of a screen.
 export interface MapCell extends Tile {
   solid: boolean;
+  terrain: Terrain;
+}
+
+// A best guess at a cell's terrain from how it looks, for maps made before
+// terrain was recorded.
+export function inferTerrain({ ch, fg, bg, solid }: Tile & { solid: boolean }, kind: MapKind): Terrain {
+  // (Walkable blue inside a building is a blue floor, not water.)
+  if ((bg === 1 || (ch === "█" && fg === 9)) && (solid || kind !== 2)) return "water";
+  if (ch === "♠" || ch === "♣") return "forest";
+  if (ch === "∩") return "mountain";
+  if (solid) return "structure";
+  if (kind === 2) return "floor";
+  if (bg === 6) return "road";
+  return bg === 2 ? "grass" : "floor";
 }
 
 // One screen of data/maps. Rows are top to bottom, MAP_HEIGHT of them, each
 // MAP_WIDTH cells wide.
 export interface GameMap {
   screen: number;
+  // Shown when the player arrives ("" for none).
+  name: string;
   kind: MapKind;
   // The encounter table for random fights here, if not "default".
   encounters?: string;
@@ -51,6 +85,7 @@ export interface GameMap {
   fg: Color[][];
   bg: Color[][];
   solid: boolean[][];
+  terrain: Terrain[][];
 }
 
 // A list of MAP_HEIGHT strings of MAP_WIDTH characters, each turned into
@@ -70,21 +105,34 @@ function grid<T>(cell: (ch: string) => T | undefined, expected: string): Reader<
 
 const hex = (ch: string): Color | undefined => (/^[0-9A-F]$/.test(ch) ? parseInt(ch, 16) : undefined);
 const kind = oneOf(MAP_KINDS);
+const terrainCode = (ch: string): Terrain | undefined => TERRAINS.find((t) => TERRAIN_CODES[t] === ch);
 
 export function readMap(value: unknown, path: string): GameMap {
   const r = record(value, path);
+  const mapKind = field(r, "kind", path, kind);
+  const tiles = field(r, "tiles", path, grid((ch) => ch, "a character"));
+  const fg = field(r, "fg", path, grid(hex, "a hex digit"));
+  const bg = field(r, "bg", path, grid(hex, "a hex digit"));
+  const solid = field(r, "solid", path, grid((ch) => (ch === "#" ? true : ch === "." ? false : undefined), "# or ."));
+  for (const [name, rows] of [["tiles", tiles], ["fg", fg], ["bg", bg], ["solid", solid]] as const) {
+    if (rows.length !== MAP_HEIGHT) throw new InvalidData(`${path}.${name}: expected ${MAP_HEIGHT} rows`);
+  }
+  const terrain =
+    r["terrain"] === undefined
+      ? tiles.map((row, y) => row.map((ch, x) => inferTerrain({ ch, fg: cellAt(fg, x + 1, y + 1), bg: cellAt(bg, x + 1, y + 1), solid: cellAt(solid, x + 1, y + 1) }, mapKind)))
+      : field(r, "terrain", path, grid(terrainCode, `one of ${Object.values(TERRAIN_CODES).join(" ")}`));
+  if (terrain.length !== MAP_HEIGHT) throw new InvalidData(`${path}.terrain: expected ${MAP_HEIGHT} rows`);
   const map: GameMap = {
     screen: field(r, "screen", path, integer),
-    kind: field(r, "kind", path, kind),
+    name: field(r, "name", path, string, ""),
+    kind: mapKind,
     ...(r["encounters"] === undefined ? {} : { encounters: field(r, "encounters", path, string) }),
-    tiles: field(r, "tiles", path, grid((ch) => ch, "a character")),
-    fg: field(r, "fg", path, grid(hex, "a hex digit")),
-    bg: field(r, "bg", path, grid(hex, "a hex digit")),
-    solid: field(r, "solid", path, grid((ch) => (ch === "#" ? true : ch === "." ? false : undefined), "# or .")),
+    tiles,
+    fg,
+    bg,
+    solid,
+    terrain,
   };
-  for (const name of ["tiles", "fg", "bg", "solid"] as const) {
-    if (map[name].length !== MAP_HEIGHT) throw new InvalidData(`${path}.${name}: expected ${MAP_HEIGHT} rows`);
-  }
   return map;
 }
 
@@ -95,22 +143,26 @@ export function writeMap(map: GameMap): string {
   const rows = <T>(grid: T[][], cell: (c: T) => string): string[] => grid.map((r) => r.map(cell).join(""));
   const data = {
     screen: map.screen,
+    ...(map.name ? { name: map.name } : {}),
     kind: map.kind,
     ...(map.encounters === undefined ? {} : { encounters: map.encounters }),
     tiles: rows(map.tiles, (ch) => ch),
     fg: rows(map.fg, (c) => HEX.charAt(c)),
     bg: rows(map.bg, (c) => HEX.charAt(c)),
     solid: rows(map.solid, (s) => (s ? "#" : ".")),
+    terrain: rows(map.terrain, (t) => TERRAIN_CODES[t]),
   };
   return JSON.stringify(data, null, 2) + "\n";
 }
 
 export const mapFileName = (screen: number): string => `${String(screen).padStart(4, "0")}.json`;
 
-// A new screen filled with one cell.
-export function blankMap(screen: number, kind: MapKind, { ch, fg, bg, solid }: MapCell = { ch: " ", fg: 15, bg: 0, solid: false }): GameMap {
+// A new screen filled with one cell (by default, blank ground of the
+// kind's terrain).
+export function blankMap(screen: number, kind: MapKind, cell?: MapCell): GameMap {
+  const { ch, fg, bg, solid, terrain } = cell ?? { ch: " ", fg: 15, bg: 0, solid: false, terrain: kind === 2 ? "floor" : "grass" };
   const rows = <T>(value: T): T[][] => Array.from({ length: MAP_HEIGHT }, () => Array.from({ length: MAP_WIDTH }, () => value));
-  return { screen, kind, tiles: rows(ch), fg: rows(fg), bg: rows(bg), solid: rows(solid) };
+  return { screen, name: "", kind, tiles: rows(ch), fg: rows(fg), bg: rows(bg), solid: rows(solid), terrain: rows(terrain) };
 }
 
 // Where screen n sits on the world grid (1-based column and row).
@@ -171,7 +223,20 @@ export class World {
   }
 
   cell(screen: number, x: number, y: number): MapCell {
-    return { ...this.tile(screen, x, y), solid: this.isSolid(screen, x, y) };
+    return { ...this.tile(screen, x, y), solid: this.isSolid(screen, x, y), terrain: this.terrain(screen, x, y) };
+  }
+
+  terrain(screen: number, x: number, y: number): Terrain {
+    return cellAt(this.map(screen).terrain, x, y);
+  }
+
+  // The screen's name ("" for none, or for a screen that doesn't exist).
+  name(screen: number): string {
+    return this.maps.get(screen)?.name ?? "";
+  }
+
+  setName(screen: number, name: string): void {
+    this.map(screen).name = name;
   }
 
   // The screen numbers in order.
@@ -181,7 +246,7 @@ export class World {
 
   // ---- Editing
 
-  setCell(screen: number, x: number, y: number, { ch, fg, bg, solid }: MapCell): void {
+  setCell(screen: number, x: number, y: number, { ch, fg, bg, solid, terrain }: MapCell): void {
     const map = this.map(screen);
     cellAt(map.tiles, x, y); // throws if (x, y) is off the map
     const set = <T>(grid: T[][], value: T): void => {
@@ -191,6 +256,7 @@ export class World {
     set(map.fg, fg);
     set(map.bg, bg);
     set(map.solid, solid);
+    set(map.terrain, terrain);
   }
 
   setKind(screen: number, kind: MapKind): void {

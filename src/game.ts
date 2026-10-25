@@ -3,7 +3,7 @@
 import { draw } from "./text.ts";
 import { at } from "./assert.ts";
 import { statusBar, textInput, prompt } from "./ui.ts";
-import { MAP_WIDTH, MAP_HEIGHT, GRID_WIDTH, GRID_HEIGHT, gridPosition, type World } from "./world.ts";
+import { MAP_WIDTH, MAP_HEIGHT, GRID_WIDTH, GRID_HEIGHT, WILD_TERRAIN, gridPosition, type World } from "./world.ts";
 import { fight, pickMonster, type Bestiary, type FightResult, type Monster } from "./combat.ts";
 import { ScriptContext, type Destination, type Script } from "./script.ts";
 import { SLOTS, type Saves, type SlotInfo } from "./saves.ts";
@@ -256,6 +256,7 @@ export class Game<F extends FlagRecord> {
   private async play({ arrive = false } = {}): Promise<void> {
     this.trackMapScreen();
     await this.redraw();
+    this.announce(null);
     if (arrive) await this.arrive();
     let pending: Key | null = null;
     for (;;) {
@@ -333,10 +334,19 @@ export class Game<F extends FlagRecord> {
 
   private async travel({ screen, x, y }: Destination): Promise<void> {
     if (!this.world.has(screen)) throw new Error(`Screen ${screen} does not exist.`);
+    const from = this.playing.screen;
     Object.assign(this.playing, { screen, x, y });
     this.trackMapScreen();
     await this.redraw();
+    this.announce(from);
     await this.arrive();
+  }
+
+  // Shows the name of the screen the player is on, unless it's the same as
+  // the one they came from.
+  private announce(from: number | null): void {
+    const name = this.world.name(this.playing.screen);
+    if (name && (from === null || this.world.name(from) !== name)) this.message(`{white}${name}`);
   }
 
   // Arriving on a tile with a trigger runs it.
@@ -375,6 +385,7 @@ export class Game<F extends FlagRecord> {
   private async encounter(): Promise<void> {
     const p = this.playing;
     if (!p.monsters || !this.world.hasMonsters(p.screen)) return;
+    if (!WILD_TERRAIN.includes(this.world.terrain(p.screen, p.x, p.y))) return;
     const table = this.monsters.table(this.world.encounters(p.screen) ?? "default");
     if (Math.floor(Math.random() * table.chance) !== 0) return;
     const monster = pickMonster(table, p.exp);
@@ -444,7 +455,7 @@ export class Game<F extends FlagRecord> {
   private drawPlayer(): void {
     const p = this.playing;
     this.screen.put(p.x, p.y, "☺", YELLOW, this.screen.cell(p.x, p.y).bg);
-    if (this.showPosition) this.screen.text(1, 1, `X:${p.x} Y:${p.y} SCR:${p.screen} `, 7, 0);
+    if (this.showPosition) this.screen.text(1, 1, `X:${p.x} Y:${p.y} SCR:${p.screen} ${this.world.terrain(p.screen, p.x, p.y)} `, 7, 0);
   }
 
   placePlayer(x: number, y: number): void {

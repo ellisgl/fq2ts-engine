@@ -131,18 +131,20 @@ export function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "fq2-test-"));
 }
 
-// A plain screen: blank tiles, white on green, nothing solid except the
+// A plain screen: blank grass, white on green, nothing solid except the
 // listed "x,y" cells.
 export function makeMap(screen: number, kind: MapKind = 1, solid: readonly string[] = []): GameMap {
   const rows = <T>(cell: (x: number, y: number) => T): T[][] =>
     Array.from({ length: MAP_HEIGHT }, (_, y) => Array.from({ length: MAP_WIDTH }, (_, x) => cell(x + 1, y + 1)));
   return {
     screen,
+    name: "",
     kind,
     tiles: rows(() => " "),
     fg: rows(() => 15),
     bg: rows(() => 2),
     solid: rows((x, y) => solid.includes(`${x},${y}`)),
+    terrain: rows(() => "grass"),
   };
 }
 

@@ -537,7 +537,7 @@ describe("cheats", () => {
   test("SDEB shows the player's position", async () => {
     const { game, term } = setup({ player: player() });
     term.feed(...RESUME, ...typeWord("SDEB"), () => {
-      expect(row(term.screen, 1)).toBe("X:10 Y:10 SCR:1");
+      expect(row(term.screen, 1)).toBe("X:10 Y:10 SCR:1 grass");
       return "escape";
     }, "escape");
     await run(game, term);
@@ -750,4 +750,62 @@ test("readConfig reads data/config.json and rejects bad data", () => {
 test("a start player with an item the catalogue doesn't have is refused", () => {
   const broken: Content<TestFlags> = { ...testContent, start: { ...START, items: { bazooka: 1 } } };
   expect(() => makeGameWith(broken, { world, monsters: onlyMonster(monster()) })).toThrow('There\'s no item "bazooka".');
+});
+
+describe("screen names and terrain", () => {
+  // Screen 1 is named; 2 shares the name; 3 has another.
+  const named = makeWorld(makeMap(1, 1, ["10,9"]), makeMap(2, 5, ["1,5"]), makeMap(3, 2), makeMap(82, 1));
+  named.setName(1, "Meadow");
+  named.setName(2, "Meadow");
+  named.setName(3, "Cottage");
+
+  const namedGame = (p: Player<TestFlags>) => makeGameWith(testContent, { world: named, monsters: onlyMonster(monster()), player: p });
+
+  test("arriving on a named screen shows its name", async () => {
+    const { game, term } = namedGame(player());
+    term.feed(
+      ...RESUME,
+      () => {
+        expect(row(term.screen, 23)).toContain("Meadow");
+        return "down";
+      },
+      () => {
+        expect(row(term.screen, 23)).toContain("Cottage");
+        return "escape";
+      },
+      "escape",
+    );
+    await run(game, term);
+  });
+
+  test("walking to another screen with the same name doesn't show it again", async () => {
+    const clock = mockClock();
+    const { game, term } = namedGame(player({ x: 79, y: 10 }));
+    term.feed(
+      ...RESUME,
+      () => {
+        clock.advance(5000);
+        return null;
+      },
+      "right",
+      () => {
+        expect(game.playing.screen).toBe(2);
+        expect(row(term.screen, 23)).toContain("HP 100/100");
+        return "escape";
+      },
+      "escape",
+    );
+    await run(game, term);
+  });
+
+  test("monsters only attack on wild terrain", async () => {
+    mockRandom(0);
+    const roads = makeWorld(makeMap(1, 1, ["10,9"]), makeMap(2, 5, ["1,5"]), makeMap(3, 2));
+    roads.setCell(2, 11, 10, { ch: " ", fg: 15, bg: 6, solid: false, terrain: "road" });
+    const p = player({ screen: 2, x: 10, y: 10, monsters: true });
+    const blobs = onlyMonster(monster({ hp: 1, attack: 0, gold: 7 }));
+    const { game, term } = makeGameWith(testContent, { world: roads, player: p, monsters: blobs, steps: [...RESUME, "right", ...LEAVE] });
+    await run(game, term);
+    expect(p.gold).toBe(20);
+  });
 });

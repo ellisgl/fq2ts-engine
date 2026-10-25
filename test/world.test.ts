@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { KINDS, MAP_HEIGHT, MAP_KINDS, MAP_WIDTH, World, blankMap, gridPosition, mapFileName, readMap, writeMap } from "../../engine/world.ts";
+import { KINDS, MAP_HEIGHT, MAP_KINDS, MAP_WIDTH, TERRAINS, TERRAIN_CODES, WILD_TERRAIN, World, blankMap, gridPosition, inferTerrain, mapFileName, readMap, writeMap, type MapCell } from "../../engine/world.ts";
 import { gameWorld, makeMap, makeWorld, tempDir } from "../helpers.ts";
 
 // A map file as stored in data/maps, with `changes` applied.
@@ -104,7 +104,7 @@ describe("writeMap", () => {
   });
 
   test("what it writes reads back the same", () => {
-    const map = blankMap(9, 3, { ch: "▓", fg: 14, bg: 4, solid: true });
+    const map = blankMap(9, 3, { ch: "▓", fg: 14, bg: 4, solid: true, terrain: "grass" });
     expect(readMap(JSON.parse(writeMap(map)), "x")).toEqual(map);
   });
 });
@@ -119,7 +119,7 @@ test("blankMap fills a screen with one cell", () => {
   expect(map.tiles).toHaveLength(MAP_HEIGHT);
   expect(map.tiles[0]).toHaveLength(MAP_WIDTH);
   expect(map).toMatchObject({ screen: 3, kind: 2 });
-  expect(makeWorld(map).cell(3, 79, 22)).toEqual({ ch: " ", fg: 15, bg: 0, solid: false });
+  expect(makeWorld(map).cell(3, 79, 22)).toEqual({ ch: " ", fg: 15, bg: 0, solid: false, terrain: "floor" });
 });
 
 test("gridPosition", () => {
@@ -131,8 +131,8 @@ test("gridPosition", () => {
 describe("editing", () => {
   test("cell, setCell and setKind", () => {
     const world = makeWorld(makeMap(1));
-    world.setCell(1, 79, 22, { ch: "#", fg: 4, bg: 6, solid: true });
-    expect(world.cell(1, 79, 22)).toEqual({ ch: "#", fg: 4, bg: 6, solid: true });
+    world.setCell(1, 79, 22, { ch: "#", fg: 4, bg: 6, solid: true, terrain: "grass" });
+    expect(world.cell(1, 79, 22)).toEqual({ ch: "#", fg: 4, bg: 6, solid: true, terrain: "grass" });
     expect(world.cell(1, 78, 22).ch).toBe(" ");
     world.setKind(1, 8);
     expect(world.hasMonsters(1)).toBe(true);
@@ -140,7 +140,7 @@ describe("editing", () => {
 
   test("setCell refuses cells off the map and missing screens", () => {
     const world = makeWorld(makeMap(1));
-    const cell = { ch: "#", fg: 4, bg: 6, solid: true };
+    const cell: MapCell = { ch: "#", fg: 4, bg: 6, solid: true, terrain: "grass" };
     expect(() => world.setCell(1, 80, 1, cell)).toThrow(RangeError);
     expect(() => world.setCell(1, 1, 0, cell)).toThrow(RangeError);
     expect(() => world.setCell(2, 1, 1, cell)).toThrow("Screen 2 does not exist.");
@@ -177,7 +177,7 @@ describe("save", () => {
     expect(world.save(dir)).toEqual({ written: ["0001.json", "0002.json", "0003.json"], deleted: [] });
     writeFileSync(join(dir, "notes.txt"), "keep me");
 
-    world.setCell(2, 1, 1, { ch: "x", fg: 1, bg: 1, solid: false });
+    world.setCell(2, 1, 1, { ch: "x", fg: 1, bg: 1, solid: false, terrain: "grass" });
     world.remove(3);
     world.put(blankMap(4, 2));
     expect(world.save(dir)).toEqual({ written: ["0002.json", "0004.json"], deleted: ["0003.json"] });
@@ -190,5 +190,70 @@ describe("save", () => {
     const dir = join(tempDir(), "new", "maps");
     makeWorld(makeMap(1)).save(dir);
     expect(readdirSync(dir)).toEqual(["0001.json"]);
+  });
+});
+
+describe("terrain and names", () => {
+  test.each([
+    [{ ch: " ", fg: 15, bg: 1, solid: true }, 1, "water"],
+    [{ ch: "█", fg: 9, bg: 2, solid: true }, 1, "water"],
+    [{ ch: " ", fg: 15, bg: 1, solid: false }, 2, "floor"],
+    [{ ch: " ", fg: 15, bg: 1, solid: true }, 2, "water"],
+    [{ ch: "♠", fg: 10, bg: 2, solid: true }, 1, "forest"],
+    [{ ch: "♣", fg: 10, bg: 2, solid: true }, 2, "forest"],
+    [{ ch: "∩", fg: 8, bg: 2, solid: true }, 5, "mountain"],
+    [{ ch: "║", fg: 14, bg: 2, solid: true }, 1, "structure"],
+    [{ ch: " ", fg: 15, bg: 0, solid: false }, 2, "floor"],
+    [{ ch: " ", fg: 15, bg: 6, solid: false }, 3, "road"],
+    [{ ch: " ", fg: 15, bg: 2, solid: false }, 5, "grass"],
+    [{ ch: " ", fg: 15, bg: 7, solid: false }, 3, "floor"],
+  ] as const)("inferTerrain(%p, kind %i) is %s", (cell, kind, terrain) => {
+    expect(inferTerrain(cell, kind)).toBe(terrain);
+  });
+
+  test("files without terrain get it inferred; files with it keep it", () => {
+    const inferred = loadOne();
+    expect(inferred.terrain(5, 1, 1)).toBe("forest");
+    const rows = (ch: string): string[] => Array.from({ length: MAP_HEIGHT }, () => ch.repeat(MAP_WIDTH));
+    const stated = loadOne({ terrain: rows("w") });
+    expect(stated.terrain(5, 1, 1)).toBe("water");
+    expect(stated.cell(5, 1, 1)).toMatchObject({ ch: "♠", terrain: "water" });
+  });
+
+  test.each([
+    [{ terrain: ["w".repeat(79)] }, "0005.json.terrain: expected 22 rows"],
+    [{ terrain: Array.from({ length: 22 }, () => "x".repeat(79)) }, '0005.json.terrain[0][0]: expected one of . f m w r _ #, found "x"'],
+    [{ name: 3 }, "0005.json.name: expected a string"],
+  ])("rejects bad terrain and names: %p", (changes, message) => {
+    expect(() => loadOne(changes)).toThrow(message);
+  });
+
+  test("names are read, written only when set, and changeable", () => {
+    const world = loadOne({ name: "Frog Pond" });
+    expect(world.name(5)).toBe("Frog Pond");
+    expect(world.name(6)).toBe("");
+    world.setName(5, "");
+    expect(writeMap(world.export(5))).not.toContain('"name"');
+    world.setName(5, "Toad Hall");
+    expect(writeMap(world.export(5))).toContain('"name": "Toad Hall"');
+    expect(() => world.setName(6, "x")).toThrow("Screen 6 does not exist.");
+  });
+
+  test("blank screens are grass outdoors and floor indoors", () => {
+    expect(makeWorld(blankMap(1, 5)).terrain(1, 1, 1)).toBe("grass");
+    expect(makeWorld(blankMap(1, 2)).terrain(1, 1, 1)).toBe("floor");
+  });
+
+  test("every terrain has a code, and the codes are all different", () => {
+    const codes = TERRAINS.map((t) => TERRAIN_CODES[t]);
+    expect(new Set(codes).size).toBe(TERRAINS.length);
+    expect(WILD_TERRAIN).toEqual(["grass", "forest", "mountain"]);
+  });
+
+  test("the game's maps all have terrain and some have names", () => {
+    const world = gameWorld();
+    expect(world.name(82)).toBe("Stone Valley");
+    expect(world.terrain(82, 30, 10)).toBe("road");
+    for (const file of readdirSync(MAPS)) expect(readFileSync(join(MAPS, file), "utf8")).toContain('"terrain"');
   });
 });
