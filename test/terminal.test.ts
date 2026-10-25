@@ -32,7 +32,8 @@ describe('parseKeys', () => {
     test('Backspace, Ctrl-C and other control characters', () => {
         expect(parseKeys('\x7f\b')).toEqual(['backspace', 'backspace']);
         expect(parseKeys('\x03')).toEqual(['ctrl-c']);
-        expect(parseKeys('\x01\t')).toEqual([]);
+        expect(parseKeys('\x01\x02')).toEqual([]);
+        expect(parseKeys('\t')).toEqual(['tab']);
     });
 
     test('mouse presses, drags and releases', () => {
@@ -50,6 +51,10 @@ describe('parseKeys', () => {
 
     test('mouse input mixed with keys', () => {
         expect(parseKeys('a\x1b[<0;2;3Mb\x1b[A')).toEqual(['a', mouse(2, 3), 'b', 'up']);
+    });
+
+    test('characters outside the Basic Multilingual Plane are one key', () => {
+        expect(parseKeys('a😀b')).toEqual(['a', '😀', 'b']);
     });
 
     test('typed characters', () => {

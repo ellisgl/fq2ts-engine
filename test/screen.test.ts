@@ -142,3 +142,19 @@ describe('fixes from the code review', () => {
         expect(screen.render()).toBe('\x1b[?25l');
     });
 });
+
+describe('Unicode on the screen', () => {
+    test('put shows a "?" for anything that can\'t fill a cell', () => {
+        const screen = new Screen();
+        screen.put(1, 1, '😀', 15, 0);
+        screen.put(2, 1, 'ж', 15, 0);
+        expect([screen.cell(1, 1).ch, screen.cell(2, 1).ch]).toEqual(['?', 'ж']);
+    });
+
+    test('text puts one character per cell, accents and all', () => {
+        const screen = new Screen();
+        screen.text(1, 1, 'Café 中 ☃', 15, 0);
+        expect(row(screen, 1)).toBe('Café ? ☃');
+        expect(screen.cell(6, 1).ch).toBe('?');
+    });
+});

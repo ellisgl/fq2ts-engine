@@ -123,3 +123,11 @@ test('escapeMarkup makes text show its braces as they are', () => {
     expect(row(screen, 1)).toBe('{red}Bob {{x}}');
     expect(screen.cell(1, 1).fg).toBe(2);
 });
+
+test('markup is drawn one character per cell, with "?" for what can\'t fill one', () => {
+    const screen = new Screen();
+    const end = draw(screen, '{red}Ж😀{green}é!');
+    expect(row(screen, 1)).toBe('Ж?é!');
+    expect(end.x).toBe(5);
+    expect(width('Ж😀é!')).toBe(4);
+});

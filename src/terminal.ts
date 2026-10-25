@@ -1,7 +1,8 @@
 // The terminal: raw keyboard input and drawing the screen.
 //
 // Keys are delivered as names ("up", "down", "left", "right", "enter",
-// "escape", "backspace", "home", "end", "pageup", "pagedown", "delete") or as
+// "escape", "backspace", "tab", "home", "end", "pageup", "pagedown",
+// "delete") or as
 // the typed character. If the mouse is turned on (start({ mouse: true })),
 // mouse buttons arrive too, as MouseInput events.
 import { Screen, WIDTH, HEIGHT } from './screen.ts';
@@ -114,7 +115,9 @@ export function parseKeys(input: string): InputEvent[] {
 
     let i = 0;
     while (i < input.length) {
-        const ch = input.charAt(i);
+        // A whole character, even one outside the Basic Multilingual Plane
+        // (which takes two UTF-16 units).
+        const ch = String.fromCodePoint(input.codePointAt(i) ?? 0);
         if (ch === '\x1b') {
             const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(input.slice(i));
             if (mouse) {
@@ -155,11 +158,13 @@ export function parseKeys(input: string): InputEvent[] {
             }
         } else if (ch === '\x7f' || ch === '\b') {
             keys.push('backspace');
+        } else if (ch === '\t') {
+            keys.push('tab');
         } else if (ch >= ' ') {
             keys.push(ch);
         }
 
-        i++;
+        i += ch.length;
     }
 
     return keys;

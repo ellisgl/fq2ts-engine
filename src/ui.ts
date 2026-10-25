@@ -1,6 +1,7 @@
 // Reusable screen widgets: the status bar, menus and text entry.
 
 import { draw, width } from './text.ts';
+import { cellCount, fitsCell, graphemes } from './chars.ts';
 import { at } from './assert.ts';
 import { WIDTH, type Color, type Screen } from './screen.ts';
 import { isMouse, type Terminal } from './terminal.ts';
@@ -52,7 +53,7 @@ export async function choose(
             const [fg, bg] = i === selected ? colors.selected : colors.normal;
             draw(screen, option, { x, y: y + i, fg, bg });
         });
-        screen.cursor = { x: x + [...plain(selected)].length, y: y + selected };
+        screen.cursor = { x: x + cellCount(plain(selected)), y: y + selected };
         const key = await term.event();
         screen.cursor = null;
         if (isMouse(key)) {
@@ -112,17 +113,18 @@ async function editText(
     const { screen } = term;
     const max = Math.max(0, length - 1);
     for (;;) {
-        const shown = mask === undefined ? value : mask.repeat(value.length);
-        screen.text(x, y, shown.padEnd(length).slice(0, Math.max(length, shown.length)), fg, bg);
-        screen.cursor = { x: Math.min(x + value.length, WIDTH), y };
+        const typed = cellCount(value);
+        const shown = mask === undefined ? value : mask.repeat(typed);
+        screen.text(x, y, shown + ' '.repeat(Math.max(0, length - typed)), fg, bg);
+        screen.cursor = { x: Math.min(x + typed, WIDTH), y };
         const key = await term.key();
         if (key === 'enter' || key === 'escape') {
             screen.cursor = null;
             return { value, escaped: key === 'escape' };
         }
         if (key === 'backspace') {
-            value = value.slice(0, -1);
-        } else if (key.length === 1 && value.length < max && filter(key)) {
+            value = graphemes(value).slice(0, -1).join('');
+        } else if (cellCount(key) === 1 && fitsCell(key) && typed < max && filter(key)) {
             value += key;
         }
     }
@@ -132,7 +134,7 @@ async function editText(
 export async function prompt(term: Terminal, y: number, label: string): Promise<string> {
     const { screen } = term;
     screen.text(1, y, label, 7, 0);
-    return (await textInput(term, { x: label.length + 1, y, length: 30, fg: 7, bg: 0 })).trim();
+    return (await textInput(term, { x: cellCount(label) + 1, y, length: 30, fg: 7, bg: 0 })).trim();
 }
 
 // Rows of text shown at once by scrollText (rows 3 to 23).

@@ -11,6 +11,7 @@
 // Text drawn without an {on ...} keeps the background already on screen.
 
 import { COLORS, WIDTH, HEIGHT, type Color, type Point, type Screen } from './screen.ts';
+import { cellCount, cells } from './chars.ts';
 
 type Token =
   | { type: 'text'; text: string }
@@ -82,7 +83,7 @@ export function width(text: string): number {
     let n = 0;
     for (const t of parse(text)) {
         if (t.type === 'text') {
-            n += [...t.text].length;
+            n += cellCount(t.text);
         } else if (t.type === 'sp') {
             n += t.n;
         }
@@ -135,7 +136,7 @@ export function draw(screen: Screen, text: string, { x = 1, y = 1, fg = 15, bg =
     for (const t of parse(text)) {
         switch (t.type) {
             case 'text':
-                for (const ch of t.text) {
+                for (const ch of cells(t.text)) {
                     put(ch);
                 }
                 break;

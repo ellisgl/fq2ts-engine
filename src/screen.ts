@@ -5,6 +5,7 @@
 // data. Colours are the 16 CGA colours; backgrounds use the first 8.
 
 import { at } from './assert.ts';
+import { REPLACEMENT, cells, fitsCell } from './chars.ts';
 
 export const WIDTH  = 80;
 export const HEIGHT = 25;
@@ -104,9 +105,14 @@ export class Screen {
         return (y - 1) * WIDTH + (x - 1);
     }
 
+    // `ch` should fit a cell (see chars.ts); anything else is drawn as a "?".
     public put(x: number, y: number, ch: string, fg: Color, bg: Color, blink = false): void {
         if (!this.inside(x, y)) {
             return;
+        }
+
+        if (!fitsCell(ch)) {
+            ch = REPLACEMENT;
         }
 
         const i       = this.index(x, y);
@@ -124,7 +130,7 @@ export class Screen {
 
     // Writes a plain string in one colour, clipped to the screen.
     public text(x: number, y: number, str: string, fg: Color, bg: Color): void {
-        for (const ch of str) {
+        for (const ch of cells(str)) {
             this.put(x++, y, ch, fg, bg);
         }
     }

@@ -5,6 +5,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { writeFileAtomic } from './files.ts';
 import { join } from 'node:path';
 import { at, cellAt } from './assert.ts';
+import { fitsCell, graphemes } from './chars.ts';
 import { record, string, integer, array, oneOf, field, InvalidData, type Reader } from './validate.ts';
 import type { Color } from './screen.ts';
 
@@ -106,7 +107,7 @@ export interface GameMap {
 function grid<T>(cell: (ch: string) => T | undefined, expected: string): Reader<T[][]> {
     return (value, path) =>
         array(value, path, (row, rowPath) => {
-            const chars = [...string(row, rowPath)];
+            const chars = graphemes(string(row, rowPath));
             if (chars.length !== MAP_WIDTH) {
                 throw new InvalidData(`${rowPath}: expected ${MAP_WIDTH} cells, found ${chars.length}`);
             }
@@ -129,7 +130,9 @@ const terrainCode = (ch: string): Terrain | undefined => TERRAINS.find((t) => TE
 export function readMap(value: unknown, path: string): GameMap {
     const r = record(value, path);
     const mapKind = field(r, 'kind', path, kind);
-    const tiles = field(r, 'tiles', path, grid((ch) => ch, 'a character'));
+    // Any character one column wide (stored in NFC, so an accented letter
+    // is the same however it was typed).
+    const tiles = field(r, 'tiles', path, grid((ch) => (fitsCell(ch) ? ch.normalize('NFC') : undefined), 'a character one column wide'));
     const fg = field(r, 'fg', path, grid(hex, 'a hex digit'));
     const bg = field(r, 'bg', path, grid(lowHex, 'a digit from 0 to 7'));
     const solid = field(r, 'solid', path, grid((ch) => (ch === '#' ? true : ch === '.' ? false : undefined), '# or .'));

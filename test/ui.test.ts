@@ -227,3 +227,29 @@ test('choose can take its colours', async () => {
     ]);
     await choose(term, ['One', 'Two'], { y: 1, colors: { normal: [9, 1], selected: [11, 1] } });
 });
+
+describe('typing Unicode', () => {
+    test('accented and non-Latin letters are typed and counted as one cell each', async () => {
+        const term = new FakeTerminal([
+            ...'Ñandú',
+            () => {
+                expect(term.screen.cursor).toEqual({ x: 6, y: 1 });
+                return 'backspace';
+            },
+            ...typed('ж'),
+        ]);
+        expect(await textInput(term, { x: 1, y: 1, length: 10 })).toBe('Ñandж');
+    });
+
+    test('what can\'t fill a cell isn\'t typed', async () => {
+        expect(await textInput(new FakeTerminal(['a', '😀', '中', ...typed('b')]), { x: 1, y: 1, length: 10 })).toBe('ab');
+    });
+
+    test('Backspace removes a whole letter, accent and all', async () => {
+        expect(await textInput(new FakeTerminal(['backspace', 'enter']), { x: 1, y: 1, length: 10, value: 'café' })).toBe('caf');
+    });
+
+    test('the length counts letters, not code units', async () => {
+        expect(await textInput(new FakeTerminal(typed('ééééé')), { x: 1, y: 1, length: 4 })).toBe('ééé');
+    });
+});

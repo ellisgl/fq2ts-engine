@@ -266,3 +266,32 @@ test('map backgrounds must be colours 0 to 7 (the 16-colour terminal has no more
     const rows = (ch: string): string[] => Array.from({ length: MAP_HEIGHT }, () => ch.repeat(MAP_WIDTH));
     expect(() => loadOne({ bg: rows('8') })).toThrow('0005.json.bg[0][0]: expected a digit from 0 to 7, found "8"');
 });
+
+describe('Unicode in map files', () => {
+    const rows = (ch: string): string[] => Array.from({ length: MAP_HEIGHT }, () => ch.repeat(MAP_WIDTH));
+
+    test('any single-width character can be a tile, and is kept as written', () => {
+        const tiles = rows('λ');
+        tiles[0] = 'ж☃◆' + 'λ'.repeat(MAP_WIDTH - 3);
+        const world = loadOne({ tiles });
+        expect([world.tile(5, 1, 1).ch, world.tile(5, 2, 1).ch, world.tile(5, 3, 1).ch]).toEqual(['ж', '☃', '◆']);
+        expect(writeMap(world.export(5))).toContain('"ж☃◆λ');
+    });
+
+    test('a letter with a separate accent is one tile, stored in NFC', () => {
+        const tiles = rows('.');
+        tiles[0] = 'é' + '.'.repeat(MAP_WIDTH - 1);
+        const world = loadOne({ tiles });
+        expect(world.tile(5, 1, 1).ch).toBe('é');
+    });
+
+    test.each([
+        ['😀', 'an emoji'],
+        ['中', 'a wide character'],
+        ['​', 'an invisible one'],
+    ])('a tile %p is refused (%s)', (ch) => {
+        const tiles = rows('.');
+        tiles[3] = ch + '.'.repeat(MAP_WIDTH - 1);
+        expect(() => loadOne({ tiles })).toThrow(`0005.json.tiles[3][0]: expected a character one column wide, found "${ch}"`);
+    });
+});
