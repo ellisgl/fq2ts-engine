@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from "bun:test";
-import { fight, monsterDamage, pickMonster, playerDamage, readMonsterTable, type Fighter, type Monster, type MonsterTable } from "../../engine/combat.ts";
+import { fight, monsterDamage, pickMonster, playerDamage, readMonsterTable, type Fighter, type Gear, type Monster, type MonsterTable } from "../../engine/combat.ts";
 import { FakeTerminal, readData, row } from "../helpers.ts";
 
 let random: Mock<() => number> | null = null;
@@ -15,10 +15,11 @@ afterEach(() => {
   random = null;
 });
 
-const nothing = { name: "Nothing", power: 0, value: 0 };
+// No weapon or armour.
+const bare: Gear = { weapon: 0, armour: 0 };
 
 function fighter(changes: Partial<Fighter> = {}): Fighter {
-  return { hp: 100, maxHp: 100, gold: 50, exp: 100, strength: 10, defense: 10, weapon: nothing, armour: nothing, superhuman: false, ...changes };
+  return { hp: 100, maxHp: 100, gold: 50, exp: 100, strength: 10, defense: 10, superhuman: false, ...changes };
 }
 
 const frog: Monster = { name: "Frog", says: "Ribbit!", hp: 15, attack: 15, gold: 15, exp: 11 };
@@ -43,58 +44,58 @@ describe("playerDamage", () => {
   test("bare hands hit for 1-10 plus strength", () => {
     randomValues(0, 0, 0, 0, 0);
     // roll(10)+1 = 1, bonus 1, coin → strength + bonus, no power hit
-    expect(playerDamage(fighter(), 3)).toEqual({ damage: 12, powerHit: false });
+    expect(playerDamage(fighter(), bare, 3)).toEqual({ damage: 12, powerHit: false });
   });
 
   test("a weapon adds its power, spread up or down", () => {
     randomValues(0.99, 0.99, 0, 0, 0);
     // power 20: spread roll(10) = 9, coin false → 20 - 9 = 11; then 10 + 1 = 11
-    expect(playerDamage(fighter({ weapon: { name: "Club", power: 20, value: 0 } }), 3).damage).toBe(22);
+    expect(playerDamage(fighter(), { weapon: 20, armour: 0 }, 3).damage).toBe(22);
   });
 
   test("strong weapons spread less", () => {
     randomValues(0.99, 0, 0, 0, 0);
     // power 60: spread roll(10)+1 = 10, coin true → 70; then 11
-    expect(playerDamage(fighter({ weapon: { name: "Gun", power: 60, value: 0 } }), 3).damage).toBe(81);
+    expect(playerDamage(fighter(), { weapon: 60, armour: 0 }, 3).damage).toBe(81);
   });
 
   test("power hits double the damage", () => {
     randomValues(0, 0, 0, 0.99);
-    expect(playerDamage(fighter(), 3)).toEqual({ damage: 24, powerHit: true });
+    expect(playerDamage(fighter(), bare, 3)).toEqual({ damage: 24, powerHit: true });
   });
 
   test("superhuman players multiply it", () => {
     randomValues(0);
-    expect(playerDamage(fighter({ superhuman: true }), 3).damage).toBe(36);
+    expect(playerDamage(fighter({ superhuman: true }), bare, 3).damage).toBe(36);
   });
 
   test("can be nothing at all", () => {
     randomValues(0.99, 0.99, 0.99, 0.99, 0);
     // power 1 → 1; strength 0 - bonus 1 → -1
-    expect(playerDamage(fighter({ strength: 0, weapon: { name: "Twig", power: 1, value: 0 } }), 3).damage).toBe(0);
+    expect(playerDamage(fighter({ strength: 0 }), { weapon: 1, armour: 0 }, 3).damage).toBe(0);
   });
 });
 
 describe("monsterDamage", () => {
   test("attack less defence, plus 1-5", () => {
     randomValues(0);
-    expect(monsterDamage(frog, fighter(), 3)).toBe(6);
+    expect(monsterDamage(frog, fighter(), bare, 3)).toBe(6);
   });
 
   test("armour absorbs some", () => {
     randomValues(0, 0);
     // spread roll(1)+1 = 1, coin true → +1, minus power 2
-    expect(monsterDamage(frog, fighter({ armour: { name: "Vest", power: 2, value: 0 } }), 3)).toBe(5);
+    expect(monsterDamage(frog, fighter(), { weapon: 0, armour: 2 }, 3)).toBe(5);
   });
 
   test("no damage when defence is higher", () => {
     randomValues(0);
-    expect(monsterDamage(frog, fighter({ defense: 100 }), 3)).toBe(0);
+    expect(monsterDamage(frog, fighter({ defense: 100 }), bare, 3)).toBe(0);
   });
 
   test("superhuman players take a fraction", () => {
     randomValues(0);
-    expect(monsterDamage(frog, fighter({ superhuman: true }), 3)).toBe(2);
+    expect(monsterDamage(frog, fighter({ superhuman: true }), bare, 3)).toBe(2);
   });
 });
 
@@ -122,7 +123,7 @@ describe("fight", () => {
     randomValues(0.99);
     const player = fighter();
     const term = new FakeTerminal(["enter", "x", "x"]);
-    expect(await fight(term, player, frog)).toBe("won");
+    expect(await fight(term, player, bare, frog)).toBe("won");
     expect(player.gold).toBe(65);
     expect(player.exp).toBe(111);
     expect(term.remaining).toBe(0);
@@ -136,7 +137,7 @@ describe("fight", () => {
     const tough = { ...frog, hp: 30 };
     // Monster hits (Enter), player hits for 12 → 18 left, monster hits, player hits for 12 → 6 left, ...
     const term = new FakeTerminal(["enter", "enter", "enter", "enter", "enter", "enter", "enter", "x", "x"]);
-    expect(await fight(term, player, tough)).toBe("won");
+    expect(await fight(term, player, bare, tough)).toBe("won");
     expect(player.hp).toBe(100 - 6 * 3);
   });
 
@@ -144,7 +145,7 @@ describe("fight", () => {
     randomValues(0.1);
     const player = fighter({ hp: 5 });
     const term = new FakeTerminal(["enter", "x"]);
-    expect(await fight(term, player, { ...frog, attack: 500 })).toBe("lost");
+    expect(await fight(term, player, bare, { ...frog, attack: 500 })).toBe("lost");
     expect(player).toMatchObject({ gold: 0, exp: 90, hp: 10 });
     expect(row(term.screen, 23)).toContain("You are defeated");
   });
@@ -153,27 +154,27 @@ describe("fight", () => {
     randomValues(0.99);
     const player = fighter({ hp: 1 });
     const term = new FakeTerminal(["enter", "enter", "x"]);
-    expect(await fight(term, player, { ...frog, hp: 1000, attack: 500 })).toBe("lost");
+    expect(await fight(term, player, bare, { ...frog, hp: 1000, attack: 500 })).toBe("lost");
   });
 
   test("running away usually works", async () => {
     randomValues(0.99);
     const term = new FakeTerminal(["right", "left", "right", "enter"]);
-    expect(await fight(term, fighter(), frog)).toBe("fled");
+    expect(await fight(term, fighter(), bare, frog)).toBe("fled");
   });
 
   test("one time in ten the monster catches you", async () => {
     randomValues(0.55);
     const player = fighter({ hp: 1 });
     const term = new FakeTerminal(["right", "enter", "enter", "x"]);
-    expect(await fight(term, player, { ...frog, attack: 500 })).toBe("lost");
+    expect(await fight(term, player, bare, { ...frog, attack: 500 })).toBe("lost");
   });
 
   test("getting caught but surviving lets you choose again", async () => {
     randomValues(0.55, 0.55, 0.55, 0, 0.99);
     const player = fighter();
     const term = new FakeTerminal(["right", "enter", "enter", "right", "enter"]);
-    expect(await fight(term, player, frog)).toBe("fled");
+    expect(await fight(term, player, bare, frog)).toBe("fled");
     expect(player.hp).toBeLessThan(100);
   });
 
@@ -182,7 +183,7 @@ describe("fight", () => {
     randomValues(0);
     const player = fighter({ superhuman: true });
     const term = new FakeTerminal(["enter", "enter", "x", "x"]);
-    expect(await fight(term, player, { ...frog, hp: 36 })).toBe("won");
+    expect(await fight(term, player, bare, { ...frog, hp: 36 })).toBe("won");
     expect(player.hp).toBe(98);
   });
 });

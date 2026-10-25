@@ -1,8 +1,9 @@
 // The API that content scripts get as `g`.
 //
 // A script is `async (g) => { ... }`. It can read and change the player
-// (g.hp, g.gold, g.weapon, g.flags ...), talk to the player (write, print,
-// choice, input, key) and move them (moveTo, goto).
+// (g.hp, g.gold, g.flags ...), their items (give, take, equip, use ...),
+// talk to the player (write, print, choice, input, key), run shops (buy,
+// sell) and move them (moveTo, goto).
 //
 // After a script finishes, the game redraws the map if the script took over
 // the screen (cls/print), and travels if it called goto().
@@ -13,7 +14,9 @@ import { choose, textInput } from "./ui.ts";
 import { fight, type FightResult, type Monster } from "./combat.ts";
 import { HEIGHT, type Screen } from "./screen.ts";
 import type { Key, Terminal } from "./terminal.ts";
-import type { FlagRecord, Item, Player } from "./player.ts";
+import { equipped, type FlagRecord, type Player, type Slot } from "./player.ts";
+import { count, effectOf, equip, gearOf, give, take, wear, type ItemDef } from "./items.ts";
+import { buyMenu, sellMenu, type BuyOptions, type SellOptions } from "./shop.ts";
 import type { Game } from "./game.ts";
 
 export type Script<F extends FlagRecord> = (g: ScriptContext<F>) => void | Promise<void>;
@@ -86,17 +89,78 @@ export class ScriptContext<F extends FlagRecord> {
   set exp(value: number) {
     this.player.exp = clampStat(value);
   }
-  get weapon(): Item {
-    return this.player.weapon;
+  // ---- Items
+
+  // The equipped weapon and armour, if any.
+  get weapon(): ItemDef | null {
+    return equipped(this.player, "weapon", this.game.items);
   }
-  set weapon(value: Item) {
-    this.player.weapon = value;
+  get armour(): ItemDef | null {
+    return equipped(this.player, "armour", this.game.items);
   }
-  get armour(): Item {
-    return this.player.armour;
+
+  // What the player carries, in catalogue order.
+  get inventory(): { item: ItemDef; count: number }[] {
+    return this.game.items
+      .all()
+      .map((item) => ({ item, count: count(this.player, item.id) }))
+      .filter((entry) => entry.count > 0);
   }
-  set armour(value: Item) {
-    this.player.armour = value;
+
+  // An item from the catalogue.
+  item(id: string): ItemDef {
+    return this.game.items.get(id);
+  }
+
+  count(id: string): number {
+    this.item(id);
+    return count(this.player, id);
+  }
+
+  has(id: string, n = 1): boolean {
+    return this.count(id) >= n;
+  }
+
+  give(id: string, n = 1): void {
+    give(this.player, id, n, this.game.items);
+  }
+
+  // Takes n of an item if the player has that many; returns whether it did.
+  take(id: string, n = 1): boolean {
+    this.item(id);
+    return take(this.player, id, n);
+  }
+
+  equip(id: string): void {
+    equip(this.player, id, this.game.items);
+  }
+
+  unequip(slot: Slot): void {
+    this.player[slot] = null;
+  }
+
+  // Uses up one of a usable item and applies its effect. Returns the item's
+  // message.
+  use(id: string): string {
+    const item = this.item(id);
+    if (item.kind !== "usable") throw new RangeError(`${item.name} can't be used.`);
+    if (!this.take(id)) throw new RangeError(`The player doesn't have ${item.name}.`);
+    const effect = effectOf(item);
+    this.maxHp += effect.maxHp;
+    this.hp += effect.heal;
+    this.strength += effect.strength;
+    this.defense += effect.defense;
+    return item.useText;
+  }
+
+  // A shop's menu of items to buy. Returns the id of the item bought, if any.
+  buy(ids: readonly string[], options: BuyOptions = {}): Promise<string | null> {
+    return buyMenu(this, ids, options);
+  }
+
+  // A menu of the player's items to sell. Returns the id sold, if any.
+  sell(options: SellOptions = {}): Promise<string | null> {
+    return sellMenu(this, options);
   }
   get flags(): F {
     return this.player.flags;
@@ -206,8 +270,11 @@ export class ScriptContext<F extends FlagRecord> {
     return false;
   }
 
+  // Fights a monster with the player's gear, which may break.
   async fight(monster: Monster): Promise<FightResult> {
-    return fight(this.term, this.player, monster, { superhumanFactor: this.game.config.superhumanFactor });
+    const result = await fight(this.term, this.player, gearOf(this.player, this.game.items), monster, { superhumanFactor: this.game.config.superhumanFactor });
+    for (const message of wear(this.player, this.game.items)) this.write(message);
+    return result;
   }
 
   // Moves whatever is drawn at path[0] along the path, pausing `delay`

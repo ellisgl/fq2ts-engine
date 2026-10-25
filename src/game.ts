@@ -8,6 +8,7 @@ import { fight, pickMonster, type MonsterTable } from "./combat.ts";
 import { ScriptContext, type Destination, type Script } from "./script.ts";
 import { SLOTS, type Saves, type SlotInfo } from "./saves.ts";
 import { restorePlayer, type FlagRecord, type FlagValue, type NumericField, type Player } from "./player.ts";
+import { gearOf, wear, type ItemCatalogue } from "./items.ts";
 import { record, string, number, field } from "./validate.ts";
 import type { Color, Screen } from "./screen.ts";
 import type { Key, Terminal } from "./terminal.ts";
@@ -62,11 +63,15 @@ export interface Content<F extends FlagRecord> {
   credits: (config: Config, frame: number) => string[];
   worldMapLegend: readonly string[];
   statusLine: (player: Player<F>, config: Config) => string;
+  // The inventory screen (I). It handles its own keys.
   inventory: Script<F>;
   newGame: Script<F>;
   // The player at the start of a new game.
   start: Player<F>;
   screens: Readonly<Partial<Record<number, ScreenScripts<F>>>>;
+  // Brings a loaded save up to date, given the save as it was on disk (for
+  // anything restorePlayer can't work out by itself).
+  upgradeSave?: (saved: unknown, player: Player<F>) => void;
 }
 
 export interface GameOptions<F extends FlagRecord> {
@@ -74,6 +79,7 @@ export interface GameOptions<F extends FlagRecord> {
   world: World;
   config: Config;
   monsters: MonsterTable;
+  items: ItemCatalogue;
   content: Content<F>;
   saves: Saves;
   debug?: boolean;
@@ -112,6 +118,7 @@ const SETTINGS: readonly (readonly [string, NumericField])[] = [
 export class Game<F extends FlagRecord> {
   readonly term: Terminal;
   readonly config: Config;
+  readonly items: ItemCatalogue;
   private readonly screen: Screen;
   private readonly world: World;
   private readonly monsters: MonsterTable;
@@ -125,12 +132,15 @@ export class Game<F extends FlagRecord> {
   private messageUntil = 0;
   private lastInput = Date.now();
 
-  constructor({ term, world, config, monsters, content, saves, debug = false, player }: GameOptions<F>) {
+  constructor({ term, world, config, monsters, items, content, saves, debug = false, player }: GameOptions<F>) {
     this.term = term;
     this.screen = term.screen;
     this.world = world;
     this.config = config;
     this.monsters = monsters;
+    this.items = items;
+    // Every item the start player has must exist (get throws if not).
+    for (const id of [...Object.keys(content.start.items), content.start.weapon, content.start.armour]) if (id !== null) items.get(id);
     this.content = content;
     this.saves = saves;
     this.debug = debug;
@@ -356,7 +366,8 @@ export class Game<F extends FlagRecord> {
     if (!p.monsters || !this.world.hasMonsters(p.screen)) return;
     if (Math.floor(Math.random() * this.monsters.chance) !== 0) return;
     const monster = pickMonster(this.monsters, p.exp);
-    const result = await fight(this.term, p, monster, { superhumanFactor: this.config.superhumanFactor });
+    const result = await fight(this.term, p, gearOf(p, this.items), monster, { superhumanFactor: this.config.superhumanFactor });
+    for (const message of wear(p, this.items)) this.message(message);
     if (result === "lost") await this.redraw();
     else this.drawStatus();
   }
@@ -440,7 +451,6 @@ export class Game<F extends FlagRecord> {
   private async inventory(): Promise<void> {
     this.screen.clear();
     await this.content.inventory(this.script());
-    await this.term.key();
     await this.redraw();
   }
 
@@ -507,7 +517,9 @@ export class Game<F extends FlagRecord> {
     if (!slot) return false;
     let player;
     try {
-      player = restorePlayer(this.content.start, this.saves.load(slot.slot), `slot${slot.slot}.json`);
+      const saved = this.saves.load(slot.slot);
+      player = restorePlayer(this.content.start, saved, this.items, `slot${slot.slot}.json`);
+      this.content.upgradeSave?.(saved, player);
     } catch (err) {
       this.screen.fillRow(24);
       this.screen.text(1, 24, `That save can't be loaded: ${err instanceof Error ? err.message : String(err)}`, 12, 0);

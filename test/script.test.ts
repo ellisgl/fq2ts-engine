@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from "bun:test";
 import { HEIGHT } from "../../engine/screen.ts";
+import { readItems } from "../../engine/items.ts";
 import { makeMap, makeWorld, newPlayer, row, scriptContext, typed } from "../helpers.ts";
 
 let random: Mock<() => number> | null = null;
@@ -10,8 +11,8 @@ afterEach(() => {
 
 describe("ScriptContext: the player", () => {
   test("reads the player's state", () => {
-    const { g } = scriptContext({ player: newPlayer({ x: 3, y: 4, screen: 82, exp: 7 }, { berries: 5 }) });
-    expect([g.x, g.y, g.screenNumber, g.exp, g.flags.berries]).toEqual([3, 4, 82, 7, 5]);
+    const { g } = scriptContext({ player: newPlayer({ x: 3, y: 4, screen: 82, exp: 7 }, { bankGold: 5 }) });
+    expect([g.x, g.y, g.screenNumber, g.exp, g.flags.bankGold]).toEqual([3, 4, 82, 7, 5]);
     expect(g.version).toBe("V0.94 Rev D");
   });
 
@@ -43,13 +44,9 @@ describe("ScriptContext: the player", () => {
     expect(game.playing.strength).toBe(12);
   });
 
-  test("weapon, armour and flags", () => {
+  test("flags", () => {
     const { g, game } = scriptContext();
-    g.weapon = { name: "Club", power: 5, value: 1 };
-    g.armour = { name: "Hat", power: 1, value: 1 };
     g.flags.ownsCastle = true;
-    expect(game.playing.weapon.name).toBe("Club");
-    expect(g.armour.name).toBe("Hat");
     expect(game.playing.flags.ownsCastle).toBe(true);
   });
 
@@ -188,5 +185,59 @@ describe("ScriptContext: rules", () => {
     expect(term.screen.cell(6, 6)).toMatchObject({ ch: "☻", fg: 4 });
     expect(term.screen.cell(5, 5).ch).toBe(" ");
     expect(term.screen.cell(6, 5).ch).toBe(" ");
+  });
+});
+
+describe("ScriptContext: items", () => {
+  test("give, count, has, take and inventory", () => {
+    const { g } = scriptContext();
+    g.give("wildberries", 3);
+    g.give("stick");
+    expect([g.count("wildberries"), g.has("wildberries", 3), g.has("wildberries", 4), g.has("stick")]).toEqual([3, true, false, true]);
+    expect(g.take("wildberries", 5)).toBe(false);
+    expect(g.take("wildberries", 2)).toBe(true);
+    expect(g.inventory.map((e) => [e.item.id, e.count])).toEqual([["stick", 1], ["wildberries", 1]]);
+  });
+
+  test("unknown items are errors", () => {
+    const { g } = scriptContext();
+    expect(() => g.count("bazooka")).toThrow('There\'s no item "bazooka".');
+    expect(() => g.take("bazooka")).toThrow();
+    expect(() => g.give("bazooka")).toThrow();
+  });
+
+  test("equip, unequip, weapon and armour", () => {
+    const { g, game } = scriptContext({ player: newPlayer({ items: { rpg: 1, vest: 1 } }) });
+    expect([g.weapon, g.armour]).toEqual([null, null]);
+    g.equip("rpg");
+    g.equip("vest");
+    expect([g.weapon?.name, g.armour?.name]).toEqual(["RPG", "Vest"]);
+    g.unequip("weapon");
+    expect(game.playing.weapon).toBeNull();
+  });
+
+  test("use applies the item's effect and uses it up", () => {
+    const { g } = scriptContext({ player: newPlayer({ hp: 248, items: { wildberries: 1 } }) });
+    expect(g.use("wildberries")).toBe("You eat some wildberries. Delicious! (+5 hitpoints)");
+    expect(g.hp).toBe(250);
+    expect(g.count("wildberries")).toBe(0);
+    expect(() => g.use("wildberries")).toThrow("The player doesn't have Wildberries.");
+    expect(() => g.use("stick")).toThrow("Stick can't be used.");
+  });
+
+  test("an effect can raise every stat", () => {
+    const { g } = scriptContext({ player: newPlayer({ hp: 10, items: { tonic: 1 } }), items: readItems([{ id: "tonic", name: "Tonic", kind: "usable", effect: { heal: 50, maxHp: 10, strength: 2, defense: 3 } }]) });
+    g.use("tonic");
+    expect([g.hp, g.maxHp, g.strength, g.defense]).toEqual([60, 260, 12, 13]);
+  });
+
+  test("fights use the gear's power, and gear can break", async () => {
+    const { g, term } = scriptContext({ player: newPlayer({ items: { stick: 1 }, weapon: "stick" }), steps: ["enter", "enter", "x", "x"] });
+    random = spyOn(Math, "random").mockReturnValue(0.01);
+    // The monster goes first (and misses), then the player hits for 15 power
+    // + strength 10 + 1.
+    expect(await g.fight({ name: "Wall", says: "...", hp: 26, attack: 0, gold: 1, exp: 1 })).toBe("won");
+    expect(g.weapon).toBeNull();
+    expect(row(term.screen, 23)).toContain("Your Stick breaks!");
   });
 });

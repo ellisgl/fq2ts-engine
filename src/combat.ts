@@ -5,7 +5,6 @@ import { at } from "./assert.ts";
 import { record, string, number, integer, array, field, type Reader } from "./validate.ts";
 import type { Color } from "./screen.ts";
 import type { Terminal } from "./terminal.ts";
-import type { Item } from "./player.ts";
 
 export interface Monster {
   name: string;
@@ -26,7 +25,7 @@ export interface MonsterTable {
   monsters: Monster[];
 }
 
-// The parts of the player a fight uses.
+// The parts of the player a fight uses (and changes).
 export interface Fighter {
   hp: number;
   maxHp: number;
@@ -34,9 +33,13 @@ export interface Fighter {
   exp: number;
   strength: number;
   defense: number;
-  weapon: Item;
-  armour: Item;
   superhuman: boolean;
+}
+
+// The power of the player's weapon and armour (0 for none).
+export interface Gear {
+  weapon: number;
+  armour: number;
 }
 
 export type FightResult = "won" | "lost" | "fled";
@@ -71,8 +74,8 @@ const roll = (n: number): number => Math.floor(Math.random() * n); // 0 .. n-1
 const coin = (): boolean => Math.random() < 0.5;
 
 // Damage the player deals with one blow.
-export function playerDamage(player: Fighter, superhumanFactor: number): { damage: number; powerHit: boolean } {
-  const power = player.weapon.power;
+export function playerDamage(player: Fighter, gear: Gear, superhumanFactor: number): { damage: number; powerHit: boolean } {
+  const power = gear.weapon;
   let damage;
   if (power <= 0) damage = roll(10) + 1;
   else {
@@ -88,9 +91,9 @@ export function playerDamage(player: Fighter, superhumanFactor: number): { damag
 }
 
 // Damage a monster deals to the player with one blow.
-export function monsterDamage(monster: Monster, player: Fighter, superhumanFactor: number): number {
+export function monsterDamage(monster: Monster, player: Fighter, gear: Gear, superhumanFactor: number): number {
   let damage = monster.attack;
-  const armour = player.armour.power;
+  const armour = gear.armour;
   if (armour > 0) {
     const spread = roll(Math.trunc(armour / 6)) + 1;
     damage += coin() ? spread : -spread;
@@ -105,6 +108,7 @@ export function monsterDamage(monster: Monster, player: Fighter, superhumanFacto
 export async function fight(
   term: Terminal,
   player: Fighter,
+  gear: Gear,
   monster: Monster,
   { superhumanFactor = 3 }: { superhumanFactor?: number } = {},
 ): Promise<FightResult> {
@@ -130,7 +134,7 @@ export async function fight(
   };
 
   const monsterTurn = async (): Promise<boolean> => {
-    const damage = monsterDamage(monster, player, superhumanFactor);
+    const damage = monsterDamage(monster, player, gear, superhumanFactor);
     player.hp = Math.max(0, player.hp - damage);
     status();
     line(25, `${monster.name} hits you for ${damage} points damage. Hit Enter...`, 7);
@@ -176,7 +180,7 @@ export async function fight(
       continue;
     }
 
-    const { damage, powerHit } = playerDamage(player, superhumanFactor);
+    const { damage, powerHit } = playerDamage(player, gear, superhumanFactor);
     hp -= damage;
     const verb = powerHit ? "POWER HIT" : "hit";
     line(24, `You ${verb} ${monster.name} for ${damage} points damage.${hp < 1 ? "  Press any key..." : ""}`, 7);

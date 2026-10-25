@@ -30,8 +30,9 @@ const START: Player<TestFlags> = {
   strength: 10,
   defense: 10,
   exp: 0,
-  weapon: { name: "Nothing", power: 0, value: 0 },
-  armour: { name: "Nothing", power: 0, value: 0 },
+  items: {},
+  weapon: null,
+  armour: null,
   monsters: false,
   superhuman: false,
   flags: { visits: 0, met: false, name: "" },
@@ -43,8 +44,9 @@ const testContent: Content<TestFlags> = {
   credits,
   worldMapLegend,
   statusLine: (p) => `HP ${p.hp}/${p.maxHp} Gold ${p.gold}`,
-  inventory: (g) => {
+  inventory: async (g) => {
     g.overlay(`{y 2}{x 2}INVENTORY gold=${g.gold}`);
+    await g.key();
   },
   newGame: async (g) => {
     g.cls();
@@ -342,6 +344,14 @@ describe("encounters", () => {
     expect(p).toMatchObject({ hp: 10, gold: 0 });
   });
 
+  test("gear can break in a random fight", async () => {
+    mockRandom(0);
+    const p = player({ screen: 2, x: 10, y: 10, monsters: true, items: { stick: 1 }, weapon: "stick" });
+    await explore(["right", "enter", "enter", "x", "x"], { player: p, monsters: blob });
+    expect(p.items).toEqual({});
+    expect(p.weapon).toBeNull();
+  });
+
   test("most steps don't start one", async () => {
     mockRandom(0.99);
     const p = player({ screen: 2, x: 10, y: 10, monsters: true });
@@ -569,6 +579,24 @@ describe("loading", () => {
     expect(() => game.playing).toThrow();
   });
 
+  test("the content's upgradeSave sees the save as it was on disk", async () => {
+    const saves = new Saves(tempDir());
+    saves.save(1, "Old", { ...player(), flags: { visits: 2, met: false, name: "", legacy: 7 } });
+    const seen: unknown[] = [];
+    const upgrading: Content<TestFlags> = {
+      ...testContent,
+      upgradeSave: (saved, p) => {
+        seen.push(saved);
+        p.gold = 1234;
+      },
+    };
+    const { game, term } = makeGameWith(upgrading, { world, saves, steps: ["down", "down", "enter", "enter", ...LEAVE] });
+    await run(game, term);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ flags: { legacy: 7 } });
+    expect(game.playing.gold).toBe(1234);
+  });
+
   test("a save on a screen that no longer exists starts at the start screen", async () => {
     const saves = new Saves(tempDir());
     saves.save(1, "Lost", player({ screen: 999 }));
@@ -646,7 +674,7 @@ describe("settings editor", () => {
 
   test("starts the flags on a fresh page when the screen fills up", async () => {
     const many = { ...START, flags: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`flag${i}`, i])) };
-    const content: Content<Record<string, number>> = { ...testContent, start: many, screens: {}, inventory: () => undefined, newGame: () => undefined, statusLine: () => "" };
+    const content: Content<Record<string, number>> = { title, help, credits, worldMapLegend, start: many, screens: {}, inventory: () => undefined, newGame: () => undefined, statusLine: () => "" };
     const { game, term } = makeGameWith(content, { world, debug: true });
     term.feed("S", ...keys("enter", 10), "y", () => {
       expect(row(term.screen, 24)).toContain("Edit flags? (Y/N): y");
@@ -663,4 +691,9 @@ describe("settings editor", () => {
 test("readConfig reads data/config.json and rejects bad data", () => {
   expect(readConfig(readData("config.json"))).toMatchObject({ title: "Final Quest 2", superhumanFactor: 3 });
   expect(() => readConfig({ title: "x" })).toThrow("config.json.company: expected a string");
+});
+
+test("a start player with an item the catalogue doesn't have is refused", () => {
+  const broken: Content<TestFlags> = { ...testContent, start: { ...START, items: { bazooka: 1 } } };
+  expect(() => makeGameWith(broken, { world })).toThrow('There\'s no item "bazooka".');
 });

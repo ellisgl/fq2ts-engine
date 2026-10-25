@@ -11,6 +11,7 @@ import { HEIGHT, WIDTH, type Screen } from "../engine/screen.ts";
 import { World, MAP_WIDTH, MAP_HEIGHT, type GameMap, type MapKind } from "../engine/world.ts";
 import { Game, readConfig, type Config, type Content } from "../engine/game.ts";
 import { readMonsterTable, type MonsterTable } from "../engine/combat.ts";
+import { readItems, type ItemCatalogue } from "../engine/items.ts";
 import { Saves } from "../engine/saves.ts";
 import { ScriptContext } from "../engine/script.ts";
 import type { FlagRecord, Player } from "../engine/player.ts";
@@ -118,6 +119,7 @@ export function readData(file: string): unknown {
 
 export const config: Config = readConfig(readData("config.json"));
 export const monsterTable: MonsterTable = readMonsterTable(readData("monsters.json"));
+export const itemCatalogue: ItemCatalogue = readItems(readData("items.json"));
 
 let realWorld: World | null = null;
 export function gameWorld(): World {
@@ -164,11 +166,12 @@ interface GameSetup<F extends FlagRecord> {
   saves?: Saves;
   debug?: boolean;
   monsters?: MonsterTable;
+  items?: ItemCatalogue;
 }
 
 export function makeGameWith<F extends FlagRecord>(
   gameContent: Content<F>,
-  { steps = [], fallback, player, world, saves, debug = false, monsters = monsterTable }: GameSetup<F> = {},
+  { steps = [], fallback, player, world, saves, debug = false, monsters = monsterTable, items = itemCatalogue }: GameSetup<F> = {},
 ): { game: Game<F>; term: FakeTerminal } {
   const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
   const game = new Game({
@@ -176,6 +179,7 @@ export function makeGameWith<F extends FlagRecord>(
     world: world ?? gameWorld(),
     config,
     monsters,
+    items,
     content: gameContent,
     saves: saves ?? new Saves(tempDir()),
     debug,
