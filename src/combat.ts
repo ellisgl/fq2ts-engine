@@ -97,6 +97,16 @@ export class Bestiary {
         this.tables = new Map(tables.map((t) => [t.name, t]));
     }
 
+    // Every monster, by id, in the order they were read.
+    public allMonsters(): [string, Monster][] {
+        return [...this.monsters.entries()];
+    }
+
+    // Every encounter table, in the order they were read.
+    public allTables(): EncounterTable[] {
+        return [...this.tables.values()];
+    }
+
     public monster(id: string): Monster {
         const monster = this.monsters.get(id);
         if (!monster) {
