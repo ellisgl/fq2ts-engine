@@ -226,6 +226,11 @@ export class Game<F extends FlagRecord> {
         }
     }
 
+    // Whether a game has begun (or been resumed): there's a player to save.
+    public get inProgress(): boolean {
+        return this.player !== null;
+    }
+
     // The player of the game in progress. Only exploring and scripts use it,
     // and they only run once there is one.
     public get playing(): Player<F> {
