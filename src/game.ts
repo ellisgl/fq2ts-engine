@@ -4,7 +4,7 @@ import { draw } from "./text.ts";
 import { at } from "./assert.ts";
 import { statusBar, textInput, prompt } from "./ui.ts";
 import { MAP_WIDTH, MAP_HEIGHT, GRID_WIDTH, GRID_HEIGHT, gridPosition, type World } from "./world.ts";
-import { fight, pickMonster, type MonsterTable } from "./combat.ts";
+import { fight, pickMonster, type Bestiary, type FightResult, type Monster } from "./combat.ts";
 import { ScriptContext, type Destination, type Script } from "./script.ts";
 import { SLOTS, type Saves, type SlotInfo } from "./saves.ts";
 import { restorePlayer, type FlagRecord, type FlagValue, type NumericField, type Player } from "./player.ts";
@@ -69,6 +69,8 @@ export interface Content<F extends FlagRecord> {
   // The player at the start of a new game.
   start: Player<F>;
   screens: Readonly<Partial<Record<number, ScreenScripts<F>>>>;
+  // Scripts that monsters' after-fight hooks (Monster.after) run, by name.
+  events?: Readonly<Record<string, Script<F>>>;
   // Brings a loaded save up to date, given the save as it was on disk (for
   // anything restorePlayer can't work out by itself).
   upgradeSave?: (saved: unknown, player: Player<F>) => void;
@@ -78,7 +80,7 @@ export interface GameOptions<F extends FlagRecord> {
   term: Terminal;
   world: World;
   config: Config;
-  monsters: MonsterTable;
+  monsters: Bestiary;
   items: ItemCatalogue;
   content: Content<F>;
   saves: Saves;
@@ -121,7 +123,7 @@ export class Game<F extends FlagRecord> {
   readonly items: ItemCatalogue;
   private readonly screen: Screen;
   private readonly world: World;
-  private readonly monsters: MonsterTable;
+  readonly monsters: Bestiary;
   private readonly content: Content<F>;
   private readonly saves: Saves;
   private readonly debug: boolean;
@@ -138,6 +140,13 @@ export class Game<F extends FlagRecord> {
     this.world = world;
     this.config = config;
     this.monsters = monsters;
+    for (const hook of monsters.hooks()) {
+      if (!content.events?.[hook]) throw new Error(`A monster runs the script "${hook}" after a fight, but the content has no such event.`);
+    }
+    for (const screen of world.screens()) {
+      const table = world.encounters(screen);
+      if (table !== undefined && !monsters.hasTable(table)) throw new Error(`Screen ${screen} uses the encounter table "${table}", which doesn't exist.`);
+    }
     this.items = items;
     // Every item the start player has must exist (get throws if not).
     for (const id of [...Object.keys(content.start.items), content.start.weapon, content.start.armour]) if (id !== null) items.get(id);
@@ -361,15 +370,26 @@ export class Game<F extends FlagRecord> {
     return g.tookScreen || before !== `${p.screen},${p.x},${p.y}`;
   }
 
+  // A random fight, sometimes, on screens with monsters. Each screen can
+  // name its encounter table; the rest use "default".
   private async encounter(): Promise<void> {
     const p = this.playing;
     if (!p.monsters || !this.world.hasMonsters(p.screen)) return;
-    if (Math.floor(Math.random() * this.monsters.chance) !== 0) return;
-    const monster = pickMonster(this.monsters, p.exp);
+    const table = this.monsters.table(this.world.encounters(p.screen) ?? "default");
+    if (Math.floor(Math.random() * table.chance) !== 0) return;
+    const monster = pickMonster(table, p.exp);
     const result = await fight(this.term, p, gearOf(p, this.items), monster, { superhumanFactor: this.config.superhumanFactor });
     for (const message of wear(p, this.items)) this.message(message);
+    const hook = this.afterFight(monster, result);
+    if (hook) await this.runScript(hook);
     if (result === "lost") await this.redraw();
     else this.drawStatus();
+  }
+
+  // The script a monster runs after a fight that ended this way, if any.
+  afterFight(monster: Monster, result: FightResult): Script<F> | undefined {
+    const name = monster.after[result];
+    return name === undefined ? undefined : this.content.events?.[name];
   }
 
   // Listens for the rest of a cheat word. Returns the key that broke it

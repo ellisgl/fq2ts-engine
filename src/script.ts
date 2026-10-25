@@ -270,10 +270,17 @@ export class ScriptContext<F extends FlagRecord> {
     return false;
   }
 
-  // Fights a monster with the player's gear, which may break.
+  // A monster from data/monsters.json.
+  monster(id: string): Monster {
+    return this.game.monsters.monster(id);
+  }
+
+  // Fights a monster with the player's gear, which may break. The
+  // monster's after-fight hook, if any, runs before this returns.
   async fight(monster: Monster): Promise<FightResult> {
     const result = await fight(this.term, this.player, gearOf(this.player, this.game.items), monster, { superhumanFactor: this.game.config.superhumanFactor });
     for (const message of wear(this.player, this.game.items)) this.write(message);
+    await this.game.afterFight(monster, result)?.(this);
     return result;
   }
 

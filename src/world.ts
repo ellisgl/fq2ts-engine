@@ -45,6 +45,8 @@ export interface MapCell extends Tile {
 export interface GameMap {
   screen: number;
   kind: MapKind;
+  // The encounter table for random fights here, if not "default".
+  encounters?: string;
   tiles: string[][];
   fg: Color[][];
   bg: Color[][];
@@ -74,6 +76,7 @@ export function readMap(value: unknown, path: string): GameMap {
   const map: GameMap = {
     screen: field(r, "screen", path, integer),
     kind: field(r, "kind", path, kind),
+    ...(r["encounters"] === undefined ? {} : { encounters: field(r, "encounters", path, string) }),
     tiles: field(r, "tiles", path, grid((ch) => ch, "a character")),
     fg: field(r, "fg", path, grid(hex, "a hex digit")),
     bg: field(r, "bg", path, grid(hex, "a hex digit")),
@@ -93,6 +96,7 @@ export function writeMap(map: GameMap): string {
   const data = {
     screen: map.screen,
     kind: map.kind,
+    ...(map.encounters === undefined ? {} : { encounters: map.encounters }),
     tiles: rows(map.tiles, (ch) => ch),
     fg: rows(map.fg, (c) => HEX.charAt(c)),
     bg: rows(map.bg, (c) => HEX.charAt(c)),
@@ -191,6 +195,17 @@ export class World {
 
   setKind(screen: number, kind: MapKind): void {
     this.map(screen).kind = kind;
+  }
+
+  // The encounter table named for a screen (undefined means "default").
+  encounters(screen: number): string | undefined {
+    return this.maps.get(screen)?.encounters;
+  }
+
+  setEncounters(screen: number, table: string | undefined): void {
+    const map = this.map(screen);
+    if (table === undefined) delete map.encounters;
+    else map.encounters = table;
   }
 
   // Adds a screen, replacing any with the same number.

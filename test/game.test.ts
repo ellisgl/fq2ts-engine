@@ -3,11 +3,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readConfig, type Content } from "../../engine/game.ts";
 import type { Player } from "../../engine/player.ts";
-import type { MonsterTable } from "../../engine/combat.ts";
+import { Bestiary, type Monster } from "../../engine/combat.ts";
 import { Saves } from "../../engine/saves.ts";
 import type { Key } from "../../engine/terminal.ts";
 import { title, help, credits, worldMapLegend } from "../../content/ui.ts";
-import { makeGameWith, makeMap, makeWorld, readData, row, screenText, tempDir, typed, type FakeTerminal, type Step } from "../helpers.ts";
+import { monster, makeGameWith, makeMap, makeWorld, readData, row, screenText, tempDir, typed, type FakeTerminal, type Step } from "../helpers.ts";
 
 // ---- A small game to drive the engine with
 
@@ -97,11 +97,16 @@ interface Options {
   player?: Player<TestFlags>;
   debug?: boolean;
   saves?: Saves;
-  monsters?: MonsterTable;
+  monsters?: Bestiary;
+}
+
+// A bestiary whose "default" table holds just this monster.
+function onlyMonster(m: Monster, chance = 1): Bestiary {
+  return new Bestiary(new Map([["only", m]]), [{ name: "default", chance, tiers: [], monsters: [m] }]);
 }
 
 function setup(options: Options = {}) {
-  return makeGameWith(testContent, { world, ...options });
+  return makeGameWith(testContent, { world, monsters: onlyMonster(monster()), ...options });
 }
 
 // Runs the game from the title menu, checking every step gets used.
@@ -310,7 +315,7 @@ describe("triggers", () => {
 
   test("going to a missing screen is an error", async () => {
     const broken: Content<TestFlags> = { ...testContent, screens: { 1: { at: { "11,10": (g) => g.goto(99, 1, 1) } } } };
-    const { game, term } = makeGameWith(broken, { world, player: player(), steps: [...RESUME, "right"] });
+    const { game, term } = makeGameWith(broken, { world, monsters: onlyMonster(monster()), player: player(), steps: [...RESUME, "right"] });
     expect(game.run()).rejects.toThrow("Screen 99 does not exist.");
     await Promise.resolve();
     expect(term.remaining).toBe(0);
@@ -318,8 +323,8 @@ describe("triggers", () => {
 });
 
 describe("encounters", () => {
-  const blob: MonsterTable = { chance: 1, tiers: [], monsters: [{ name: "Blob", says: "Bloop", hp: 1, attack: 0, gold: 7, exp: 3 }] };
-  const ogre: MonsterTable = { chance: 1, tiers: [], monsters: [{ name: "Ogre", says: "Rrr", hp: 1000, attack: 5000, gold: 0, exp: 0 }] };
+  const blob = onlyMonster(monster({ name: "Blob", says: "Bloop", hp: 1, attack: 0, gold: 7, exp: 3 }));
+  const ogre = onlyMonster(monster({ name: "Ogre", says: "Rrr", hp: 1000, attack: 5000, gold: 0, exp: 0 }));
 
   test("only happen on monster screens with monsters turned on", async () => {
     mockRandom(0);
@@ -355,8 +360,57 @@ describe("encounters", () => {
   test("most steps don't start one", async () => {
     mockRandom(0.99);
     const p = player({ screen: 2, x: 10, y: 10, monsters: true });
-    await explore(["right"], { player: p, monsters: { ...blob, chance: 30 } });
+    await explore(["right"], { player: p, monsters: onlyMonster(monster({ gold: 7 }), 30) });
     expect(p.gold).toBe(20);
+  });
+
+  test("a screen can name its own encounter table", async () => {
+    mockRandom(0);
+    const rich = monster({ name: "Rich Blob", hp: 1, attack: 0, gold: 500 });
+    const poor = monster({ name: "Blob", hp: 1, attack: 0, gold: 1 });
+    const bestiary = new Bestiary(new Map([["rich", rich], ["poor", poor]]), [
+      { name: "default", chance: 1, tiers: [], monsters: [poor] },
+      { name: "vault", chance: 1, tiers: [], monsters: [rich] },
+    ]);
+    const vaultWorld = makeWorld(makeMap(1, 1, ["10,9"]), makeMap(2, 5), makeMap(3, 2));
+    vaultWorld.setEncounters(2, "vault");
+    const p = player({ screen: 2, x: 10, y: 10, monsters: true });
+    const { game, term } = makeGameWith(testContent, { world: vaultWorld, player: p, monsters: bestiary, steps: [...RESUME, "right", "enter", "enter", "x", "x", ...LEAVE] });
+    await run(game, term);
+    expect(p.gold).toBe(520);
+  });
+
+  test("a monster's after-fight hook runs the content's event", async () => {
+    mockRandom(0);
+    const looter = onlyMonster(monster({ hp: 1, attack: 0, after: { won: "loot" } }));
+    const looting: Content<TestFlags> = { ...testContent, events: { loot: (g) => g.give("wildberries", 2) } };
+    const p = player({ screen: 2, x: 10, y: 10, monsters: true });
+    const { game, term } = makeGameWith(looting, { world, player: p, monsters: looter, steps: [...RESUME, "right", "enter", "enter", "x", "x", ...LEAVE] });
+    await run(game, term);
+    expect(p.items).toEqual({ wildberries: 2 });
+  });
+
+  test("hooks for other endings don't run", async () => {
+    mockRandom(0);
+    const looter = onlyMonster(monster({ hp: 1, attack: 0, after: { lost: "loot" } }));
+    const looting: Content<TestFlags> = { ...testContent, events: { loot: (g) => g.give("wildberries", 2) } };
+    const p = player({ screen: 2, x: 10, y: 10, monsters: true });
+    const { game, term } = makeGameWith(looting, { world, player: p, monsters: looter, steps: [...RESUME, "right", "enter", "enter", "x", "x", ...LEAVE] });
+    await run(game, term);
+    expect(p.items).toEqual({});
+  });
+});
+
+describe("checks when the game starts", () => {
+  test("every monster hook needs a content event", () => {
+    const hooked = onlyMonster(monster({ after: { won: "missing" } }));
+    expect(() => makeGameWith(testContent, { world, monsters: hooked })).toThrow('A monster runs the script "missing" after a fight, but the content has no such event.');
+  });
+
+  test("every screen's encounter table must exist", () => {
+    const odd = makeWorld(makeMap(1));
+    odd.setEncounters(1, "swamp");
+    expect(() => makeGameWith(testContent, { world: odd, monsters: onlyMonster(monster()) })).toThrow('Screen 1 uses the encounter table "swamp", which doesn\'t exist.');
   });
 });
 
@@ -590,7 +644,7 @@ describe("loading", () => {
         p.gold = 1234;
       },
     };
-    const { game, term } = makeGameWith(upgrading, { world, saves, steps: ["down", "down", "enter", "enter", ...LEAVE] });
+    const { game, term } = makeGameWith(upgrading, { world, monsters: onlyMonster(monster()), saves, steps: ["down", "down", "enter", "enter", ...LEAVE] });
     await run(game, term);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ flags: { legacy: 7 } });
@@ -675,7 +729,7 @@ describe("settings editor", () => {
   test("starts the flags on a fresh page when the screen fills up", async () => {
     const many = { ...START, flags: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`flag${i}`, i])) };
     const content: Content<Record<string, number>> = { title, help, credits, worldMapLegend, start: many, screens: {}, inventory: () => undefined, newGame: () => undefined, statusLine: () => "" };
-    const { game, term } = makeGameWith(content, { world, debug: true });
+    const { game, term } = makeGameWith(content, { world, monsters: onlyMonster(monster()), debug: true });
     term.feed("S", ...keys("enter", 10), "y", () => {
       expect(row(term.screen, 24)).toContain("Edit flags? (Y/N): y");
       return "enter";
@@ -695,5 +749,5 @@ test("readConfig reads data/config.json and rejects bad data", () => {
 
 test("a start player with an item the catalogue doesn't have is refused", () => {
   const broken: Content<TestFlags> = { ...testContent, start: { ...START, items: { bazooka: 1 } } };
-  expect(() => makeGameWith(broken, { world })).toThrow('There\'s no item "bazooka".');
+  expect(() => makeGameWith(broken, { world, monsters: onlyMonster(monster()) })).toThrow('There\'s no item "bazooka".');
 });

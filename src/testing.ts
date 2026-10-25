@@ -10,7 +10,7 @@ import { Terminal, type InputEvent, type Key, type MouseInput, type TerminalInpu
 import { HEIGHT, WIDTH, type Screen } from "../engine/screen.ts";
 import { World, MAP_WIDTH, MAP_HEIGHT, type GameMap, type MapKind } from "../engine/world.ts";
 import { Game, readConfig, type Config, type Content } from "../engine/game.ts";
-import { readMonsterTable, type MonsterTable } from "../engine/combat.ts";
+import { readBestiary, type Attack, type Bestiary, type Monster } from "../engine/combat.ts";
 import { readItems, type ItemCatalogue } from "../engine/items.ts";
 import { Saves } from "../engine/saves.ts";
 import { ScriptContext } from "../engine/script.ts";
@@ -118,7 +118,7 @@ export function readData(file: string): unknown {
 }
 
 export const config: Config = readConfig(readData("config.json"));
-export const monsterTable: MonsterTable = readMonsterTable(readData("monsters.json"));
+export const bestiary: Bestiary = readBestiary(readData("monsters.json"));
 export const itemCatalogue: ItemCatalogue = readItems(readData("items.json"));
 
 let realWorld: World | null = null;
@@ -165,13 +165,13 @@ interface GameSetup<F extends FlagRecord> {
   world?: World;
   saves?: Saves;
   debug?: boolean;
-  monsters?: MonsterTable;
+  monsters?: Bestiary;
   items?: ItemCatalogue;
 }
 
 export function makeGameWith<F extends FlagRecord>(
   gameContent: Content<F>,
-  { steps = [], fallback, player, world, saves, debug = false, monsters = monsterTable, items = itemCatalogue }: GameSetup<F> = {},
+  { steps = [], fallback, player, world, saves, debug = false, monsters = bestiary, items = itemCatalogue }: GameSetup<F> = {},
 ): { game: Game<F>; term: FakeTerminal } {
   const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
   const game = new Game({
@@ -212,4 +212,11 @@ export function trigger(screen: number, x: number, y: number): (g: ScriptContext
 // Mouse input at (x, y): a left press unless told otherwise.
 export function mouse(x: number, y: number, changes: Partial<MouseInput> = {}): MouseInput {
   return { type: "mouse", action: "press", button: "left", x, y, shift: false, alt: false, ctrl: false, ...changes };
+}
+
+// A monster for tests: one attack, no defence, unless told otherwise.
+export function monster(changes: Partial<Monster> & { attack?: number } = {}): Monster {
+  const { attack, ...rest } = changes;
+  const attacks: Attack[] = [{ text: "hits you", power: attack ?? 15 }];
+  return { name: "Frog", says: "Ribbit!", pronoun: "it", hp: 15, defense: 0, gold: 15, exp: 11, attacks, kill: "", after: {}, ...rest };
 }

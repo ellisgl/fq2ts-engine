@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from "bun:test";
-import { fight, monsterDamage, pickMonster, playerDamage, readMonsterTable, type Fighter, type Gear, type Monster, type MonsterTable } from "../../engine/combat.ts";
-import { FakeTerminal, readData, row } from "../helpers.ts";
+import { fight, monsterDamage, pickMonster, playerDamage, readBestiary, readMonster, type EncounterTable, type Fighter, type Gear } from "../../engine/combat.ts";
+import { FakeTerminal, monster, readData, row } from "../helpers.ts";
 
 let random: Mock<() => number> | null = null;
 
@@ -22,21 +22,59 @@ function fighter(changes: Partial<Fighter> = {}): Fighter {
   return { hp: 100, maxHp: 100, gold: 50, exp: 100, strength: 10, defense: 10, superhuman: false, ...changes };
 }
 
-const frog: Monster = { name: "Frog", says: "Ribbit!", hp: 15, attack: 15, gold: 15, exp: 11 };
+const frog = monster();
+const hits = (power: number) => ({ text: "hits you", power });
 
-describe("readMonsterTable", () => {
+describe("readBestiary", () => {
   test("reads data/monsters.json", () => {
-    const table = readMonsterTable(readData("monsters.json"));
+    const bestiary = readBestiary(readData("monsters.json"));
+    const table = bestiary.table("default");
     expect(table.chance).toBe(30);
     expect(table.tiers).toHaveLength(3);
     expect(table.monsters[0]?.name).toBe("Tree Frog");
+    expect(bestiary.monster("lion")).toMatchObject({ pronoun: "he", defense: 10, kill: "The king is dead. Long live you." });
+    expect(bestiary.monster("tree-elf").after).toEqual({ won: "elf-berries" });
+    expect(bestiary.tableNames()).toEqual(["default", "forest"]);
+    expect(bestiary.hooks()).toEqual(["elf-berries"]);
+    expect(bestiary.hasTable("forest")).toBe(true);
   });
 
-  test("rejects bad monsters and tiers", () => {
-    expect(() => readMonsterTable({ chance: 1, tiers: [], monsters: [{ ...frog, hp: "1" }] })).toThrow("monsters.json.monsters[0].hp: expected a whole number");
-    expect(() => readMonsterTable({ chance: 1, tiers: [{ belowExp: 1 }], monsters: [] })).toThrow("monsters.json.tiers[0].pick");
-    expect(() => readMonsterTable({ tiers: [], monsters: [] })).toThrow("monsters.json.chance");
-    expect(() => readMonsterTable([])).toThrow("monsters.json: expected an object");
+  test("fills in defaults", () => {
+    expect(readMonster({ name: "Rat", says: "Squeak", hp: 1, gold: 1, exp: 1, attacks: [hits(1)] }, "rat")).toEqual({
+      name: "Rat",
+      says: "Squeak",
+      pronoun: "it",
+      hp: 1,
+      defense: 0,
+      gold: 1,
+      exp: 1,
+      attacks: [hits(1)],
+      kill: "",
+      after: {},
+    });
+  });
+
+  test("unknown monsters and tables are errors", () => {
+    const bestiary = readBestiary(readData("monsters.json"));
+    expect(() => bestiary.monster("dragon")).toThrow('There\'s no monster "dragon".');
+    expect(() => bestiary.table("desert")).toThrow('There\'s no encounter table "desert".');
+  });
+
+  const rat = { id: "rat", name: "Rat", says: "Squeak", hp: 1, gold: 1, exp: 1, attacks: [hits(1)] };
+  test.each([
+    [{ monsters: [{ ...rat, hp: "1" }], tables: [] }, "monsters.json.monsters[0].hp: expected a whole number"],
+    [{ monsters: [{ ...rat, attacks: [] }], tables: [] }, "monsters.json.monsters[0].attacks: expected at least one attack"],
+    [{ monsters: [{ ...rat, pronoun: "they" }], tables: [] }, "monsters.json.monsters[0].pronoun: expected one of he, she, it"],
+    [{ monsters: [{ ...rat, after: { drew: "x" } }], tables: [] }, "monsters.json.monsters[0].after key: expected one of won, lost, fled"],
+    [{ monsters: [{ ...rat, after: { won: 3 } }], tables: [] }, "monsters.json.monsters[0].after.won: expected a string"],
+    [{ monsters: [rat, rat], tables: [] }, 'monsters.json.monsters[1].id: "rat" is used twice'],
+    [{ monsters: [rat], tables: [{ name: "t", chance: 1, monsters: ["cat"] }] }, 'monsters.json.tables[0].monsters[0]: there\'s no monster "cat"'],
+    [{ monsters: [rat], tables: [{ name: "t", chance: 1, monsters: [] }] }, "monsters.json.tables[0].monsters: expected at least one monster"],
+    [{ monsters: [rat], tables: [{ name: "t", chance: 1, monsters: ["rat"], tiers: [{ belowExp: 5, pick: 2 }] }] }, "monsters.json.tables[0].tiers[0].pick: expected 1 to 1"],
+    [{ monsters: [rat], tables: [{ name: "t", monsters: ["rat"] }] }, "monsters.json.tables[0].chance: expected a whole number"],
+    [[], "monsters.json: expected an object"],
+  ])("rejects bad data: %p", (data, message) => {
+    expect(() => readBestiary(data)).toThrow(message);
   });
 });
 
@@ -79,28 +117,29 @@ describe("playerDamage", () => {
 describe("monsterDamage", () => {
   test("attack less defence, plus 1-5", () => {
     randomValues(0);
-    expect(monsterDamage(frog, fighter(), bare, 3)).toBe(6);
+    expect(monsterDamage(hits(15), fighter(), bare, 3)).toBe(6);
   });
 
   test("armour absorbs some", () => {
     randomValues(0, 0);
     // spread roll(1)+1 = 1, coin true → +1, minus power 2
-    expect(monsterDamage(frog, fighter(), { weapon: 0, armour: 2 }, 3)).toBe(5);
+    expect(monsterDamage(hits(15), fighter(), { weapon: 0, armour: 2 }, 3)).toBe(5);
   });
 
   test("no damage when defence is higher", () => {
     randomValues(0);
-    expect(monsterDamage(frog, fighter({ defense: 100 }), bare, 3)).toBe(0);
+    expect(monsterDamage(hits(15), fighter({ defense: 100 }), bare, 3)).toBe(0);
   });
 
   test("superhuman players take a fraction", () => {
     randomValues(0);
-    expect(monsterDamage(frog, fighter({ superhuman: true }), bare, 3)).toBe(2);
+    expect(monsterDamage(hits(15), fighter({ superhuman: true }), bare, 3)).toBe(2);
   });
 });
 
 describe("pickMonster", () => {
-  const table: MonsterTable = {
+  const table: EncounterTable = {
+    name: "test",
     chance: 1,
     tiers: [{ belowExp: 100, pick: 1 }],
     monsters: [frog, { ...frog, name: "Bear" }],
@@ -145,7 +184,7 @@ describe("fight", () => {
     randomValues(0.1);
     const player = fighter({ hp: 5 });
     const term = new FakeTerminal(["enter", "x"]);
-    expect(await fight(term, player, bare, { ...frog, attack: 500 })).toBe("lost");
+    expect(await fight(term, player, bare, monster({ attack: 500 }))).toBe("lost");
     expect(player).toMatchObject({ gold: 0, exp: 90, hp: 10 });
     expect(row(term.screen, 23)).toContain("You are defeated");
   });
@@ -154,7 +193,7 @@ describe("fight", () => {
     randomValues(0.99);
     const player = fighter({ hp: 1 });
     const term = new FakeTerminal(["enter", "enter", "x"]);
-    expect(await fight(term, player, bare, { ...frog, hp: 1000, attack: 500 })).toBe("lost");
+    expect(await fight(term, player, bare, monster({ hp: 1000, attack: 500 }))).toBe("lost");
   });
 
   test("running away usually works", async () => {
@@ -167,7 +206,7 @@ describe("fight", () => {
     randomValues(0.55);
     const player = fighter({ hp: 1 });
     const term = new FakeTerminal(["right", "enter", "enter", "x"]);
-    expect(await fight(term, player, bare, { ...frog, attack: 500 })).toBe("lost");
+    expect(await fight(term, player, bare, monster({ attack: 500 }))).toBe("lost");
   });
 
   test("getting caught but surviving lets you choose again", async () => {
@@ -185,5 +224,69 @@ describe("fight", () => {
     const term = new FakeTerminal(["enter", "enter", "x", "x"]);
     expect(await fight(term, player, bare, { ...frog, hp: 36 })).toBe("won");
     expect(player.hp).toBe(98);
+  });
+});
+
+describe("fight with richer monsters", () => {
+  test("the monster uses one of its attacks, and says which", async () => {
+    // Monster first (0.1 < 0.5), picks attack roll(2) = floor(0.6 * 2) = 1.
+    randomValues(0.1, 0.6, 0.1);
+    const player = fighter({ hp: 5 });
+    const term = new FakeTerminal([
+      () => {
+        expect(row(term.screen, 25)).toStartWith("Frog breathes fire at you for");
+        return "enter";
+      },
+      "x",
+    ]);
+    const dragonish = monster({ attacks: [{ text: "nibbles you", power: 1 }, { text: "breathes fire at you", power: 500 }] });
+    expect(await fight(term, player, bare, dragonish)).toBe("lost");
+  });
+
+  test("an attack that does no damage says so", async () => {
+    // The monster goes first (0.1); running away works (roll(10) = 1).
+    randomValues(0.1);
+    const term = new FakeTerminal([
+      () => {
+        expect(row(term.screen, 25)).toBe("Frog hits you but does no damage. Hit Enter...");
+        return "enter";
+      },
+      "right",
+      "enter",
+    ]);
+    expect(await fight(term, fighter(), bare, monster({ attack: 0 }))).toBe("fled");
+  });
+
+  test("defense takes damage off the player's blows", async () => {
+    // The player goes first (0.99) and power-hits for 38, less 30 defense.
+    randomValues(0.99);
+    const term = new FakeTerminal([
+      "enter",
+      () => {
+        expect(row(term.screen, 24)).toBe("You POWER HIT Frog for 8 points damage.");
+        expect(row(term.screen, 23)).toContain("Frog's hitpoints - (92/100)");
+        return "enter";
+      },
+      "right",
+      "enter",
+    ]);
+    expect(await fight(term, fighter(), bare, monster({ hp: 100, defense: 30, attack: 0 }))).toBe("fled");
+  });
+
+  test("a power-hit kill shows the monster's kill line, and pronouns are used", async () => {
+    randomValues(0.99);
+    const term = new FakeTerminal([
+      "enter",
+      "x",
+      () => {
+        expect(row(term.screen, 24)).toBe("The frog explodes into confetti.");
+        return "x";
+      },
+      () => {
+        expect(row(term.screen, 24)).toBe("You killed Frog!  You find $15 on her and get 11 Experience..");
+        return "x";
+      },
+    ]);
+    expect(await fight(term, fighter(), bare, monster({ kill: "The frog explodes into confetti.", pronoun: "she" }))).toBe("won");
   });
 });

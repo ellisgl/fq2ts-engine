@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from "bun:test";
 import { HEIGHT } from "../../engine/screen.ts";
 import { readItems } from "../../engine/items.ts";
-import { makeMap, makeWorld, newPlayer, row, scriptContext, typed } from "../helpers.ts";
+import { makeMap, makeWorld, monster, newPlayer, row, scriptContext, typed } from "../helpers.ts";
 
 let random: Mock<() => number> | null = null;
 afterEach(() => {
@@ -174,7 +174,7 @@ describe("ScriptContext: rules", () => {
     random = spyOn(Math, "random").mockReturnValue(0.99);
     const { g } = scriptContext({ player: newPlayer({ superhuman: true }), steps: ["enter", "x", "x"] });
     // Bare hands with random 0.99: 10 + 9, power hit x2, superhuman x3 = 114.
-    expect(await g.fight({ name: "Wall", says: "...", hp: 114, attack: 0, gold: 1, exp: 1 })).toBe("won");
+    expect(await g.fight(monster({ name: "Wall", hp: 114, attack: 0, gold: 1, exp: 1 }))).toBe("won");
   });
 
   test("animate moves a sprite along a path and restores the map behind it", async () => {
@@ -236,8 +236,24 @@ describe("ScriptContext: items", () => {
     random = spyOn(Math, "random").mockReturnValue(0.01);
     // The monster goes first (and misses), then the player hits for 15 power
     // + strength 10 + 1.
-    expect(await g.fight({ name: "Wall", says: "...", hp: 26, attack: 0, gold: 1, exp: 1 })).toBe("won");
+    expect(await g.fight(monster({ name: "Wall", hp: 26, attack: 0, gold: 1, exp: 1 }))).toBe("won");
     expect(g.weapon).toBeNull();
     expect(row(term.screen, 23)).toContain("Your Stick breaks!");
+  });
+});
+
+describe("ScriptContext: monsters", () => {
+  test("monster looks one up in data/monsters.json", () => {
+    const { g } = scriptContext();
+    expect(g.monster("lion").name).toBe("Lion");
+    expect(() => g.monster("dragon")).toThrow();
+  });
+
+  test("a scripted fight runs the monster's hook too", async () => {
+    random = spyOn(Math, "random").mockReturnValue(0.99);
+    const { g } = scriptContext({ steps: ["enter", "x", "x"] });
+    // The real Tree Elf's hook drops wildberries; this one has 1 hp.
+    expect(await g.fight({ ...g.monster("tree-elf"), hp: 1 })).toBe("won");
+    expect(g.count("wildberries")).toBe(3);
   });
 });

@@ -2,27 +2,150 @@
 
 import { draw } from "./text.ts";
 import { at } from "./assert.ts";
-import { record, string, number, integer, array, field, type Reader } from "./validate.ts";
+import { InvalidData, record, string, number, integer, array, field, oneOf, type Reader } from "./validate.ts";
 import type { Color } from "./screen.ts";
 import type { Terminal } from "./terminal.ts";
 
-export interface Monster {
-  name: string;
-  says: string;
-  hp: number;
-  attack: number;
-  gold: number;
-  exp: number;
+export interface Attack {
+  // What the monster does, after its name: "spits poison at you".
+  text: string;
+  power: number;
 }
 
-// Random encounters (data/monsters.json). Monsters are listed weakest first;
+export const PRONOUNS = ["he", "she", "it"] as const;
+export type Pronoun = (typeof PRONOUNS)[number];
+
+export type FightResult = "won" | "lost" | "fled";
+
+export interface Monster {
+  name: string;
+  // What it says when the fight starts.
+  says: string;
+  pronoun: Pronoun;
+  hp: number;
+  // Taken off every blow the player lands.
+  defense: number;
+  gold: number;
+  exp: number;
+  // It uses one of these, at random, each turn.
+  attacks: Attack[];
+  // Shown when the player kills it with a power hit (or "" for the usual).
+  kill: string;
+  // Names of content scripts (Content.events) to run after the fight ends
+  // each way.
+  after: Partial<Record<FightResult, string>>;
+}
+
+// A set of monsters to meet at random. Monsters are listed weakest first;
 // each tier limits how far down the list a player with less experience can
 // meet.
-export interface MonsterTable {
+export interface EncounterTable {
+  name: string;
   // One step in `chance` starts a fight.
   chance: number;
   tiers: { belowExp: number; pick: number }[];
   monsters: Monster[];
+}
+
+const attack: Reader<Attack> = (value, path) => {
+  const r = record(value, path);
+  return { text: field(r, "text", path, string), power: field(r, "power", path, number) };
+};
+
+const RESULTS = ["won", "lost", "fled"] as const;
+
+const after: Reader<Monster["after"]> = (value, path) => {
+  const r = record(value, path);
+  const hooks: Monster["after"] = {};
+  for (const [key, script] of Object.entries(r)) hooks[oneOf(RESULTS)(key, `${path} key`)] = string(script, `${path}.${key}`);
+  return hooks;
+};
+
+export const readMonster: Reader<Monster> = (value, path) => {
+  const r = record(value, path);
+  const attacks = field(r, "attacks", path, (v, p) => array(v, p, attack));
+  if (!attacks.length) throw new InvalidData(`${path}.attacks: expected at least one attack`);
+  return {
+    name: field(r, "name", path, string),
+    says: field(r, "says", path, string),
+    pronoun: field(r, "pronoun", path, oneOf(PRONOUNS), "it"),
+    hp: field(r, "hp", path, integer),
+    defense: field(r, "defense", path, number, 0),
+    gold: field(r, "gold", path, integer),
+    exp: field(r, "exp", path, integer),
+    attacks,
+    kill: field(r, "kill", path, string, ""),
+    after: r["after"] === undefined ? {} : field(r, "after", path, after),
+  };
+};
+
+// The monsters (data/monsters.json), by id, and the encounter tables, by name.
+export class Bestiary {
+  private readonly monsters: ReadonlyMap<string, Monster>;
+  private readonly tables: ReadonlyMap<string, EncounterTable>;
+
+  constructor(monsters: ReadonlyMap<string, Monster>, tables: readonly EncounterTable[]) {
+    this.monsters = monsters;
+    this.tables = new Map(tables.map((t) => [t.name, t]));
+  }
+
+  monster(id: string): Monster {
+    const monster = this.monsters.get(id);
+    if (!monster) throw new RangeError(`There's no monster "${id}".`);
+    return monster;
+  }
+
+  table(name: string): EncounterTable {
+    const table = this.tables.get(name);
+    if (!table) throw new RangeError(`There's no encounter table "${name}".`);
+    return table;
+  }
+
+  hasTable(name: string): boolean {
+    return this.tables.has(name);
+  }
+
+  tableNames(): string[] {
+    return [...this.tables.keys()];
+  }
+
+  // Every script name the monsters' after-fight hooks use.
+  hooks(): string[] {
+    return [...new Set([...this.monsters.values()].flatMap((m) => Object.values(m.after)))];
+  }
+}
+
+export function readBestiary(value: unknown, path = "monsters.json"): Bestiary {
+  const r = record(value, path);
+  const monsters = new Map<string, Monster>();
+  for (const [i, entry] of field(r, "monsters", path, (v, p) => array(v, p, (m) => m)).entries()) {
+    const where = `${path}.monsters[${i}]`;
+    const id = field(record(entry, where), "id", where, string);
+    if (monsters.has(id)) throw new InvalidData(`${where}.id: "${id}" is used twice`);
+    monsters.set(id, readMonster(entry, where));
+  }
+  const tables = field(r, "tables", path, (v, p) =>
+    array(v, p, (t, tp): EncounterTable => {
+      const table = record(t, tp);
+      const members = field(table, "monsters", tp, (m, mp) => array(m, mp, string)).map((id, i) => {
+        const monster = monsters.get(id);
+        if (!monster) throw new InvalidData(`${tp}.monsters[${i}]: there's no monster "${id}"`);
+        return monster;
+      });
+      const tiers = field(table, "tiers", tp, (v2, p2) =>
+        array(v2, p2, (tier, tierPath) => {
+          const tr = record(tier, tierPath);
+          const pick = field(tr, "pick", tierPath, integer);
+          if (pick < 1 || pick > members.length) throw new InvalidData(`${tierPath}.pick: expected 1 to ${members.length}`);
+          return { belowExp: field(tr, "belowExp", tierPath, number), pick };
+        }),
+      [],
+    );
+      if (!members.length) throw new InvalidData(`${tp}.monsters: expected at least one monster`);
+      return { name: field(table, "name", tp, string), chance: field(table, "chance", tp, integer), tiers, monsters: members };
+    }),
+  );
+  return new Bestiary(monsters, tables);
 }
 
 // The parts of the player a fight uses (and changes).
@@ -42,33 +165,6 @@ export interface Gear {
   armour: number;
 }
 
-export type FightResult = "won" | "lost" | "fled";
-
-const monster: Reader<Monster> = (value, path) => {
-  const r = record(value, path);
-  return {
-    name: field(r, "name", path, string),
-    says: field(r, "says", path, string),
-    hp: field(r, "hp", path, integer),
-    attack: field(r, "attack", path, number),
-    gold: field(r, "gold", path, integer),
-    exp: field(r, "exp", path, integer),
-  };
-};
-
-export function readMonsterTable(value: unknown, path = "monsters.json"): MonsterTable {
-  const r = record(value, path);
-  return {
-    chance: field(r, "chance", path, integer),
-    tiers: field(r, "tiers", path, (v, p) =>
-      array(v, p, (t, tp) => {
-        const tier = record(t, tp);
-        return { belowExp: field(tier, "belowExp", tp, number), pick: field(tier, "pick", tp, integer) };
-      }),
-    ),
-    monsters: field(r, "monsters", path, (v, p) => array(v, p, monster)),
-  };
-}
 
 const roll = (n: number): number => Math.floor(Math.random() * n); // 0 .. n-1
 const coin = (): boolean => Math.random() < 0.5;
@@ -91,8 +187,9 @@ export function playerDamage(player: Fighter, gear: Gear, superhumanFactor: numb
 }
 
 // Damage a monster deals to the player with one blow.
-export function monsterDamage(monster: Monster, player: Fighter, gear: Gear, superhumanFactor: number): number {
-  let damage = monster.attack;
+// Damage a monster's attack deals to the player.
+export function monsterDamage(attack: Attack, player: Fighter, gear: Gear, superhumanFactor: number): number {
+  let damage = attack.power;
   const armour = gear.armour;
   if (armour > 0) {
     const spread = roll(Math.trunc(armour / 6)) + 1;
@@ -134,10 +231,13 @@ export async function fight(
   };
 
   const monsterTurn = async (): Promise<boolean> => {
-    const damage = monsterDamage(monster, player, gear, superhumanFactor);
+    const { attacks } = monster;
+    const attack = attacks.length === 1 ? at(attacks, 0) : at(attacks, roll(attacks.length));
+    const damage = monsterDamage(attack, player, gear, superhumanFactor);
     player.hp = Math.max(0, player.hp - damage);
     status();
-    line(25, `${monster.name} hits you for ${damage} points damage. Hit Enter...`, 7);
+    const result = damage > 0 ? `for ${damage} points damage` : "but does no damage";
+    line(25, `${monster.name} ${attack.text} ${result}. Hit Enter...`, 7);
     await enter();
     clear(24);
     clear(25);
@@ -180,7 +280,9 @@ export async function fight(
       continue;
     }
 
-    const { damage, powerHit } = playerDamage(player, gear, superhumanFactor);
+    const blow = playerDamage(player, gear, superhumanFactor);
+    const damage = Math.max(0, blow.damage - monster.defense);
+    const { powerHit } = blow;
     hp -= damage;
     const verb = powerHit ? "POWER HIT" : "hit";
     line(24, `You ${verb} ${monster.name} for ${damage} points damage.${hp < 1 ? "  Press any key..." : ""}`, 7);
@@ -189,7 +291,12 @@ export async function fight(
       player.gold += monster.gold;
       player.exp += monster.exp;
       await anyKey();
-      line(24, `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}Gold and get {white}${monster.exp}{green} Experience..`, 15);
+      if (powerHit && monster.kill) {
+        line(24, `{lightcyan}${monster.kill}`, 15);
+        await anyKey();
+      }
+      const them = { he: "him", she: "her", it: "it" }[monster.pronoun];
+      line(24, `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}on ${them} and get {white}${monster.exp}{green} Experience..`, 15);
       clear(25);
       await anyKey();
       clear(24);
@@ -201,7 +308,7 @@ export async function fight(
 }
 
 // Picks a random encounter.
-export function pickMonster({ monsters, tiers }: MonsterTable, exp: number): Monster {
+export function pickMonster({ monsters, tiers }: EncounterTable, exp: number): Monster {
   const tier = tiers.find((t) => exp < t.belowExp);
   const count = tier ? tier.pick : monsters.length;
   return at(monsters, roll(count));
