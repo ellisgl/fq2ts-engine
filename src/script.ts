@@ -243,6 +243,10 @@ export class ScriptContext<F extends FlagRecord> {
     public async choice(options: readonly Choice[]): Promise<number> {
         const all = options.map((option, i) => (typeof option === 'string' ? { text: option, show: true, i } : { ...option, i }));
         const shown = all.filter((option) => option.show);
+        if (!shown.length) {
+            return -1;
+        }
+
         this.tookScreen = true;
         const y = this.printRow;
         this.printRow = Math.min(y + shown.length, HEIGHT);

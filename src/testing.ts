@@ -87,7 +87,12 @@ export class FakeTerminal extends Terminal {
             }
             return Promise.reject(new Error('The test ran out of keys.'));
         }
-        return Promise.resolve(typeof step === 'function' ? step() : step);
+        const event = typeof step === 'function' ? step() : step;
+        if (event !== null) {
+            this.noteInput();
+        }
+
+        return Promise.resolve(event);
     }
 
     // Keys are scripted, so there is no typing ahead to throw away.

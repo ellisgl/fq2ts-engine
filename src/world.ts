@@ -1,7 +1,8 @@
 // The world: 79x22 screens laid out on an 80-wide grid (screen n's
 // neighbours are n-1, n+1, n-80 and n+80). Screens come from data/maps.
 
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { writeFileAtomic } from './files.ts';
 import { join } from 'node:path';
 import { at, cellAt } from './assert.ts';
 import { record, string, integer, array, oneOf, field, InvalidData, type Reader } from './validate.ts';
@@ -120,6 +121,8 @@ function grid<T>(cell: (ch: string) => T | undefined, expected: string): Reader<
 }
 
 const hex = (ch: string): Color | undefined => (/^[0-9A-F]$/.test(ch) ? parseInt(ch, 16) : undefined);
+// Backgrounds are the first 8 colours only (the 16-colour terminal has no more).
+const lowHex = (ch: string): Color | undefined => (/^[0-7]$/.test(ch) ? parseInt(ch, 16) : undefined);
 const kind = oneOf(MAP_KINDS);
 const terrainCode = (ch: string): Terrain | undefined => TERRAINS.find((t) => TERRAIN_CODES[t] === ch);
 
@@ -128,7 +131,7 @@ export function readMap(value: unknown, path: string): GameMap {
     const mapKind = field(r, 'kind', path, kind);
     const tiles = field(r, 'tiles', path, grid((ch) => ch, 'a character'));
     const fg = field(r, 'fg', path, grid(hex, 'a hex digit'));
-    const bg = field(r, 'bg', path, grid(hex, 'a hex digit'));
+    const bg = field(r, 'bg', path, grid(lowHex, 'a digit from 0 to 7'));
     const solid = field(r, 'solid', path, grid((ch) => (ch === '#' ? true : ch === '.' ? false : undefined), '# or .'));
     for (const [name, rows] of [['tiles', tiles], ['fg', fg], ['bg', bg], ['solid', solid]] as const) {
         if (rows.length !== MAP_HEIGHT) {
@@ -336,7 +339,7 @@ export class World {
             if (old === text) {
                 continue;
             }
-            writeFileSync(path, text);
+            writeFileAtomic(path, text);
             written.push(file);
         }
         for (const file of existing) {

@@ -176,7 +176,21 @@ export function readBestiary(value: unknown, path = 'monsters.json'): Bestiary {
                 throw new InvalidData(`${tp}.monsters: expected at least one monster`);
             }
 
-            return { name: field(table, 'name', tp, string), chance: field(table, 'chance', tp, integer), tiers, monsters: members };
+            // pickMonster takes the first tier the player is below.
+            tiers.forEach((tier, i) => {
+                const before = tiers[i - 1];
+                if (before && tier.belowExp <= before.belowExp) {
+                    throw new InvalidData(`${tp}.tiers[${i}].belowExp: expected more than the tier before (${before.belowExp})`);
+                }
+            });
+
+            // One step in `chance` starts a fight, so 0 would mean every step.
+            const chance = field(table, 'chance', tp, integer);
+            if (chance < 1) {
+                throw new InvalidData(`${tp}.chance: expected 1 or more`);
+            }
+
+            return { name: field(table, 'name', tp, string), chance, tiers, monsters: members };
         }),
     );
 
@@ -302,7 +316,7 @@ export async function fight(
         line(23, 'You are defeated... Your Gold and Experience have been lowered unfortunately..', 14, 1);
         player.exp -= Math.trunc(player.exp / 10);
         player.gold = 0;
-        player.hp = 10;
+        player.hp = Math.min(10, player.maxHp);
         await anyKey();
         clear(24);
         clear(25);

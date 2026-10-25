@@ -8,15 +8,17 @@ import { isMouse, type Terminal } from './terminal.ts';
 const BLUE = 1;
 const WHITE = 15;
 
-// The bar on row 23: shaded ends and centred white-on-blue text.
+// The bar on row 23: shaded ends and centred white-on-blue text. Text too
+// long for the bar is cut off under the shaded ends.
 export function statusBar(screen: Screen, text: string): void {
     const y = 23;
     for (let x = 1; x <= 79; x++) {
         screen.put(x, y, ' ', WHITE, BLUE);
     }
+    draw(screen, `{center}${text}`, { y, fg: WHITE, bg: BLUE, wrap: false });
     screen.text(1, y, '░▒', BLUE, 0);
     screen.text(78, y, '▒░', BLUE, 0);
-    draw(screen, `{center}${text}`, { y, fg: WHITE, bg: BLUE });
+    screen.put(80, y, ' ', 7, 0);
 }
 
 // A vertical list of options starting at row `y`. Returns the chosen index,
@@ -27,6 +29,11 @@ export async function choose(
     options: readonly string[],
     { y, x = 1, selected = 0 }: { y: number; x?: number; selected?: number },
 ): Promise<number> {
+    // With nothing to pick, there's nothing to wait for.
+    if (!options.length) {
+        return -1;
+    }
+
     const { screen } = term;
     const plain = (i: number): string => at(options, i).replace(/\{[^}]*\}/g, '');
     for (;;) {
@@ -117,7 +124,7 @@ export async function scrollText(term: Terminal, lines: readonly string[], { tit
     for (;;) {
         screen.clear();
         screen.fillRow(1, BLUE);
-        draw(screen, `{center}{yellow}${title}`, { y: 1, bg: BLUE });
+        draw(screen, `{center}{yellow}${title}`, { y: 1, bg: BLUE, wrap: false });
         lines.slice(top, top + SCROLL_PAGE).forEach((line, i) => draw(screen, line, { x: 2, y: 3 + i, fg: 7 }));
         const shown = lines.length ? `${top + 1}-${Math.min(lines.length, top + SCROLL_PAGE)} of ${lines.length}` : 'empty';
         draw(screen, `{darkgray}Arrows, PgUp/PgDn, Home/End scroll.  Enter or Esc closes.{x 66}{gray}${shown}`, { y: 25, bg: 0 });

@@ -261,3 +261,8 @@ describe('terrain and names', () => {
         }
     });
 });
+
+test('map backgrounds must be colours 0 to 7 (the 16-colour terminal has no more)', () => {
+    const rows = (ch: string): string[] => Array.from({ length: MAP_HEIGHT }, () => ch.repeat(MAP_WIDTH));
+    expect(() => loadOne({ bg: rows('8') })).toThrow('0005.json.bg[0][0]: expected a digit from 0 to 7, found "8"');
+});

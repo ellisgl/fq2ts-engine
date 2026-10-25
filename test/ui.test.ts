@@ -186,3 +186,15 @@ describe('scrollText', () => {
         await scrollText(empty, []);
     });
 });
+
+test('choose with no options is -1, without waiting for a key', async () => {
+    expect(await choose(new FakeTerminal(), [], { y: 1 })).toBe(-1);
+});
+
+test('the status bar cuts off a message too long for it, keeping its ends', () => {
+    const screen = new Screen();
+    screen.put(1, 24, 'z', 7, 0);
+    statusBar(screen, 'x'.repeat(120));
+    expect(row(screen, 23)).toBe('░▒' + 'x'.repeat(75) + '▒░');
+    expect(row(screen, 24)).toBe('z');
+});

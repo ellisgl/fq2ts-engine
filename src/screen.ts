@@ -43,6 +43,21 @@ export const RGB: readonly Rgb[] = [
 const ANSI = [0, 4, 2, 6, 1, 5, 3, 7];
 const trueColor = process.env['FQ2_COLORS'] !== '16';
 
+// A cell's colours as one number: fg in bits 0-3, bg in 4-7, blink in 8.
+const packAttr = (fg: Color, bg: Color, blink: number): number => fg | (bg << 4) | (blink << 8);
+
+// The escape sequence for each packed attribute, made once.
+const styles = new Map<number, string>();
+function styleOf(attr: number): string {
+    let style = styles.get(attr);
+    if (style === undefined) {
+        style = sgr(attr & 15, (attr >> 4) & 15, attr >> 8);
+        styles.set(attr, style);
+    }
+
+    return style;
+}
+
 function sgr(fg: Color, bg: Color, blink: number): string {
     const b = blink ? ';5' : '';
     if (trueColor) {
@@ -62,7 +77,12 @@ export class Screen {
     private readonly fg:    Uint8Array;
     private readonly bg:    Uint8Array;
     private readonly blink: Uint8Array;
-    private readonly shown: (string | null)[];
+    // What the terminal shows now: each cell's character and packed
+    // attribute (null and -1 when unknown).
+    private readonly shownCh: (string | null)[];
+    private readonly shownAttr: Int16Array;
+    // Whether anything may differ from what the terminal shows.
+    private dirty = true;
 
     public cursor: Point | null = null; // when the terminal cursor should be visible
 
@@ -72,7 +92,8 @@ export class Screen {
         this.fg    = new Uint8Array(size).fill(7);
         this.bg    = new Uint8Array(size).fill(0);
         this.blink = new Uint8Array(size);
-        this.shown = new Array<string | null>(size).fill(null);
+        this.shownCh = new Array<string | null>(size).fill(null);
+        this.shownAttr = new Int16Array(size).fill(-1);
     }
 
     public inside(x: number, y: number): boolean {
@@ -89,10 +110,16 @@ export class Screen {
         }
 
         const i       = this.index(x, y);
+        const b       = blink ? 1 : 0;
+        if (this.chars[i] === ch && this.fg[i] === fg && this.bg[i] === bg && this.blink[i] === b) {
+            return;
+        }
+
         this.chars[i] = ch;
         this.fg[i]    = fg;
         this.bg[i]    = bg;
-        this.blink[i] = blink ? 1 : 0;
+        this.blink[i] = b;
+        this.dirty    = true;
     }
 
     // Writes a plain string in one colour, clipped to the screen.
@@ -120,11 +147,17 @@ export class Screen {
     }
 
     public invalidate(): void {
-        this.shown.fill(null);
+        this.shownCh.fill(null);
+        this.shownAttr.fill(-1);
+        this.dirty = true;
+    }
+
+    private attr(i: number): number {
+        return packAttr(this.fg[i] ?? 0, this.bg[i] ?? 0, this.blink[i] ?? 0);
     }
 
     private style(i: number): string {
-        return sgr(at(this.fg, i), at(this.bg, i), at(this.blink, i));
+        return styleOf(this.attr(i));
     }
 
     // The escape sequence that brings the terminal up to date.
@@ -132,19 +165,20 @@ export class Screen {
         let out = '';
         let last = '';
         let pos = -1;
-        for (let i = 0; i < WIDTH * HEIGHT; i++) {
-            const ch = at(this.chars, i);
-            const key = `${ch}${at(this.fg, i)},${at(this.bg, i)},${at(this.blink, i)}`;
-            if (this.shown[i] === key) {
+        for (let i = 0; this.dirty && i < WIDTH * HEIGHT; i++) {
+            const ch = this.chars[i] ?? ' ';
+            const attr = this.attr(i);
+            if (this.shownCh[i] === ch && this.shownAttr[i] === attr) {
                 continue;
             }
 
-            this.shown[i] = key;
+            this.shownCh[i] = ch;
+            this.shownAttr[i] = attr;
             if (pos !== i) {
                 out += `\x1b[${Math.floor(i / WIDTH) + 1};${(i % WIDTH) + 1}H`;
             }
 
-            const style = this.style(i);
+            const style = styleOf(attr);
             if (style !== last) {
                 out += last = style;
             }
@@ -154,6 +188,7 @@ export class Screen {
             pos = (i + 1) % WIDTH === 0 ? -1 : i + 1;
         }
 
+        this.dirty = false;
         if (out) {
             out += '\x1b[0m';
         }

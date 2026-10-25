@@ -102,13 +102,20 @@ export interface DrawOptions {
     y?: number;
     fg?: Color;
     bg?: Color | null;
+    // Whether text past the right edge carries on in the next row (true) or
+    // is cut off (false).
+    wrap?: boolean;
 }
 
 // Draws one line of markup. Returns where the cursor ended up.
-export function draw(screen: Screen, text: string, { x = 1, y = 1, fg = 15, bg = null }: DrawOptions = {}): Point {
+export function draw(screen: Screen, text: string, { x = 1, y = 1, fg = 15, bg = null, wrap = true }: DrawOptions = {}): Point {
     let blink = false;
     const put = (ch: string): void => {
         if (x > WIDTH) {
+            if (!wrap) {
+                return;
+            }
+
             x = 1;
             y++;
         }
@@ -145,7 +152,8 @@ export function draw(screen: Screen, text: string, { x = 1, y = 1, fg = 15, bg =
                 }
                 break;
             case 'center':
-                x = 40 - Math.floor(width(text) / 2) + 1;
+                // (A line too wide to centre starts at the left edge.)
+                x = Math.max(1, 40 - Math.floor(width(text) / 2) + 1);
                 break;
         }
     }

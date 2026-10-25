@@ -962,3 +962,61 @@ describe('messages, the back-buffer and the other keys', () => {
         await run(game, term);
     });
 });
+
+describe('fixes from the code review', () => {
+    const blobs = (): Bestiary => onlyMonster(monster({ hp: 1, attack: 0, gold: 7 }));
+
+    test('no fight from bumping into a wall', async () => {
+        mockRandom(0);
+        const walled = makeWorld(makeMap(1, 1, ['10,9']), makeMap(2, 5, ['11,10']), makeMap(3, 2));
+        const p = player({ screen: 2, x: 10, y: 10, monsters: true });
+        const { game, term } = makeGameWith(testContent, { world: walled, player: p, monsters: blobs(), steps: [...RESUME, 'right', 'right', ...LEAVE] });
+        await run(game, term);
+        expect(p).toMatchObject({ x: 10, gold: 20 });
+    });
+
+    test('no fight from being turned back at the edge of the world', async () => {
+        mockRandom(0);
+        // Screen 2 is in the top row of the world, so there's nothing above it.
+        const p = player({ screen: 2, x: 5, y: 1, monsters: true });
+        const { game, term } = makeGameWith(testContent, { world, player: p, monsters: blobs(), steps: [...RESUME, 'up', ...LEAVE] });
+        await run(game, term);
+        expect(p.gold).toBe(20);
+    });
+
+    test('no fight on a tile a script handles', async () => {
+        mockRandom(0);
+        const scripted: Content<TestFlags> = { ...testContent, screens: { 2: { at: { '11,10': (g) => g.write('A tile.') } } } };
+        const p = player({ screen: 2, x: 10, y: 10, monsters: true });
+        const { game, term } = makeGameWith(scripted, { world, player: p, monsters: blobs(), steps: [...RESUME, 'right', ...LEAVE] });
+        await run(game, term);
+        expect(p).toMatchObject({ x: 11, gold: 20 });
+    });
+
+    test('a long stay in a menu doesn\'t start the screensaver on the way out', async () => {
+        const clock = mockClock();
+        const { game, term } = setup({ player: player() });
+        term.feed(
+            ...RESUME,
+            'i',
+            () => {
+                clock.advance(200_000);
+                return 'x';
+            },
+            null,
+            () => {
+                expect(screenText(term.screen)).not.toContain('Screen Protection System');
+                return 'escape';
+            },
+            'escape',
+        );
+        await run(game, term);
+    });
+
+    test('a save placed off the map starts where new games do', async () => {
+        const saves = new Saves(tempDir());
+        saves.save(1, 'Odd', player({ screen: 3, x: 200, y: 5 }));
+        const { game } = await play(['down', 'down', 'enter', 'enter', ...LEAVE], { saves });
+        expect(game.playing).toMatchObject({ screen: 1, x: 10, y: 10 });
+    });
+});

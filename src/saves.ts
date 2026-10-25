@@ -1,6 +1,7 @@
 // Five save slots stored as saves/slotN.json.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { writeFileAtomic } from './files.ts';
 import { join } from 'node:path';
 import { record } from './validate.ts';
 
@@ -52,6 +53,6 @@ export class Saves {
     public save(slot: number, name: string, state: unknown): void {
         mkdirSync(this.dir, { recursive: true });
         const data = { name, savedAt: new Date().toISOString(), state };
-        writeFileSync(this.file(slot), JSON.stringify(data, null, 2) + '\n');
+        writeFileAtomic(this.file(slot), JSON.stringify(data, null, 2) + '\n');
     }
 }

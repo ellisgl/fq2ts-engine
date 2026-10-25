@@ -124,3 +124,21 @@ describe('Screen', () => {
         expect(COLORS[15]).toBe('white');
     });
 });
+
+describe('fixes from the code review', () => {
+    test('putting what is already there changes nothing to send', () => {
+        const screen = new Screen();
+        screen.put(1, 1, 'a', 3, 4);
+        screen.render();
+        screen.put(1, 1, 'a', 3, 4);
+        expect(screen.render()).toBe('\x1b[?25l');
+    });
+
+    test('a cell changed and changed back is not sent again', () => {
+        const screen = new Screen();
+        screen.render();
+        screen.put(1, 1, 'a', 3, 4);
+        screen.put(1, 1, ' ', 7, 0);
+        expect(screen.render()).toBe('\x1b[?25l');
+    });
+});

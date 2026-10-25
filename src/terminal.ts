@@ -160,6 +160,7 @@ export class Terminal {
     private waiters: Waiter[] = [];
     private active = false;
     private mouse = false;
+    private lastInputAt = Date.now();
     public onInterrupt: () => void = () => {};
 
     public constructor({ input = process.stdin, output = process.stdout }: { input?: TerminalInput; output?: TerminalOutput } = {}) {
@@ -244,7 +245,18 @@ export class Terminal {
         this.output.write(this.screen.render());
     }
 
+    // When the player last pressed a key or used the mouse (anywhere: on the
+    // map, in a menu, in a script), for idle timers like the screensaver.
+    public get lastInput(): number {
+        return this.lastInputAt;
+    }
+
+    protected noteInput(): void {
+        this.lastInputAt = Date.now();
+    }
+
     public push(event: InputEvent): void {
+        this.noteInput();
         const waiter = this.waiters.shift();
         if (waiter) {
             waiter(event);

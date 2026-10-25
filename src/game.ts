@@ -152,7 +152,6 @@ export class Game<F extends FlagRecord> {
     // Messages only wait behind others from the same turn.
     private turn = 0;
     private messageTurn = -1;
-    private lastInput = Date.now();
 
     public constructor({ term, world, config, monsters, items, content, saves, debug = false, player }: GameOptions<F>) {
         this.term = term;
@@ -369,7 +368,7 @@ export class Game<F extends FlagRecord> {
     private async waitKey(): Promise<Key> {
         for (;;) {
             const now = Date.now();
-            let timeout = this.lastInput + SCREENSAVER_SECONDS * 1000 - now;
+            let timeout = this.term.lastInput + SCREENSAVER_SECONDS * 1000 - now;
             if (this.messageText) {
                 timeout = Math.min(timeout, this.messageUntil - now);
             }
@@ -378,7 +377,6 @@ export class Game<F extends FlagRecord> {
             const key = await this.term.key(timeout);
             this.screen.cursor = null;
             if (key) {
-                this.lastInput = Date.now();
                 this.newTurn();
                 return key;
             }
@@ -387,29 +385,35 @@ export class Game<F extends FlagRecord> {
                 this.nextMessage();
             }
 
-            if (Date.now() >= this.lastInput + SCREENSAVER_SECONDS * 1000) {
+            if (Date.now() >= this.term.lastInput + SCREENSAVER_SECONDS * 1000) {
                 await this.screensaver();
-                this.lastInput = Date.now();
                 await this.redraw();
             }
         }
     }
 
+    // One step. Random monsters only turn up after a real step onto a tile
+    // with no trigger (as in LORD II): not when the player bumps into
+    // something, crosses to another screen, or a script handles the tile.
     private async move(dx: number, dy: number): Promise<void> {
         const p = this.playing;
         const x = p.x + dx;
         const y = p.y + dy;
         if (x < 1 || x > MAP_WIDTH || y < 1 || y > MAP_HEIGHT) {
             await this.crossEdge(dx, dy);
-        } else {
-            const trigger = this.triggerAt(x, y);
-            const consumed = trigger ? await this.runScript(trigger) : false;
-            if (!consumed && (this.noclip || !this.world.isSolid(p.screen, x, y))) {
-                this.placePlayer(x, y);
-            }
+            return;
         }
 
-        await this.encounter();
+        const trigger = this.triggerAt(x, y);
+        const consumed = trigger ? await this.runScript(trigger) : false;
+        if (consumed || (!this.noclip && this.world.isSolid(p.screen, x, y))) {
+            return;
+        }
+
+        this.placePlayer(x, y);
+        if (!trigger) {
+            await this.encounter();
+        }
     }
 
     private async crossEdge(dx: number, dy: number): Promise<void> {
@@ -779,8 +783,12 @@ export class Game<F extends FlagRecord> {
             return false;
         }
 
-        if (!this.world.has(player.screen)) {
-            player.screen = this.content.start.screen;
+        // A save from a screen that's gone, or from off the map, starts again
+        // where new games do.
+        const onMap = player.x >= 1 && player.x <= MAP_WIDTH && player.y >= 1 && player.y <= MAP_HEIGHT;
+        if (!this.world.has(player.screen) || !onMap) {
+            const { screen, x, y } = this.content.start;
+            Object.assign(player, { screen, x, y });
         }
 
         this.player = player;

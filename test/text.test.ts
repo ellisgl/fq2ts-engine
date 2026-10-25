@@ -99,3 +99,20 @@ describe('draw', () => {
         expect(row(screen, 1)).toBe('');
     });
 });
+
+describe('fixes from the code review', () => {
+    test('a centred line too wide for the screen starts at the left edge', () => {
+        const screen = new Screen();
+        draw(screen, `{center}${'abcdefghij'.repeat(9)}`);
+        expect(row(screen, 1)).toBe('abcdefghij'.repeat(8));
+        expect(row(screen, 2)).toBe('abcdefghij');
+    });
+
+    test('wrap: false cuts text at the right edge', () => {
+        const screen = new Screen();
+        const end = draw(screen, '{x 79}abc', { wrap: false });
+        expect(row(screen, 1)).toBe(' '.repeat(78) + 'ab');
+        expect(row(screen, 2)).toBe('');
+        expect(end.y).toBe(1);
+    });
+});

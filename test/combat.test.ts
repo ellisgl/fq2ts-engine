@@ -290,3 +290,25 @@ describe('fight with richer monsters', () => {
         expect(await fight(term, fighter(), bare, monster({ kill: 'The frog explodes into confetti.', pronoun: 'she' }))).toBe('won');
     });
 });
+
+describe('fixes from the code review', () => {
+    const rat = { id: 'rat', name: 'Rat', says: 'Squeak', hp: 1, gold: 1, exp: 1, attacks: [{ text: 'bites you', power: 1 }] };
+
+    test('an encounter table needs a chance of at least 1', () => {
+        expect(() => readBestiary({ monsters: [rat], tables: [{ name: 't', chance: 0, monsters: ['rat'] }] })).toThrow('monsters.json.tables[0].chance: expected 1 or more');
+    });
+
+    test('tiers must go up in experience', () => {
+        const tiers = [{ belowExp: 500, pick: 1 }, { belowExp: 100, pick: 1 }];
+        expect(() => readBestiary({ monsters: [rat], tables: [{ name: 't', chance: 1, monsters: ['rat'], tiers }] })).toThrow(
+            'monsters.json.tables[0].tiers[1].belowExp: expected more than the tier before (500)',
+        );
+    });
+
+    test('losing never leaves more hitpoints than the maximum', async () => {
+        randomValues(0.1);
+        const player = fighter({ hp: 1, maxHp: 5 });
+        expect(await fight(new FakeTerminal(['enter', 'x']), player, bare, monster({ attack: 500 }))).toBe('lost');
+        expect(player.hp).toBe(5);
+    });
+});

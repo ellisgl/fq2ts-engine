@@ -306,3 +306,9 @@ describe('ScriptContext: name and sex', () => {
         expect([g.sex, g.bySex('boy', 'girl')]).toEqual(['female', 'girl']);
     });
 });
+
+test('a choice with every option hidden is -1, without waiting for a key', async () => {
+    const { g, term } = scriptContext();
+    expect(await g.choice([{ text: 'A', show: false }])).toBe(-1);
+    expect(term.remaining).toBe(0);
+});
