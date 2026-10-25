@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
-import { fight, monsterDamage, pickMonster, playerDamage, readBestiary, readMonster, type EncounterTable, type Fighter, type Gear } from '@fq2js/engine/combat';
-import { FakeTerminal, monster, readData, row } from '../helpers.ts';
+import { fight, monsterDamage, pickMonster, playerDamage, readBestiary, readMonster, type EncounterTable, type Fighter, type Gear } from '../src/combat.ts';
+import { FakeTerminal, monster, row } from '../src/testing.ts';
+import { readFixture } from '../src/fixture.ts';
 
 let random: Mock<() => number> | null = null;
 
@@ -27,7 +28,7 @@ const hits = (power: number) => ({ text: 'hits you', power });
 
 describe('readBestiary', () => {
     test('reads data/monsters.json', () => {
-        const bestiary = readBestiary(readData('monsters.json'));
+        const bestiary = readBestiary(readFixture('monsters.json'));
         const table = bestiary.table('default');
         expect(table.chance).toBe(30);
         expect(table.tiers).toHaveLength(3);
@@ -55,7 +56,7 @@ describe('readBestiary', () => {
     });
 
     test('unknown monsters and tables are errors', () => {
-        const bestiary = readBestiary(readData('monsters.json'));
+        const bestiary = readBestiary(readFixture('monsters.json'));
         expect(() => bestiary.monster('dragon')).toThrow('There\'s no monster "dragon".');
         expect(() => bestiary.table('desert')).toThrow('There\'s no encounter table "desert".');
     });

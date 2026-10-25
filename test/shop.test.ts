@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { newPlayer, pick, row, screenText, scriptContext } from '../helpers.ts';
+import { pick, row, screenText } from '../src/testing.ts';
+import { newPlayer, scriptContext } from '../src/fixture.ts';
 
 describe('g.buy', () => {
     test('lists the items with prices and descriptions, and Never mind', async () => {
@@ -28,7 +29,7 @@ describe('g.buy', () => {
         });
         expect(await g.buy(['stick', 'wildberries'])).toBe('wildberries');
         expect(g.count('wildberries')).toBe(1);
-        expect(g.gold).toBe(49);
+        expect(g.gold).toBe(19);
     });
 
     test("prices can differ from the items' values", async () => {
@@ -49,6 +50,7 @@ describe('g.buy', () => {
 
     test('buying gear when nothing is equipped', async () => {
         const { g, term } = scriptContext({
+            player: newPlayer({ gold: 1000 }),
             steps: [
                 'enter',
                 () => {

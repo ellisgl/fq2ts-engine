@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { KINDS, MAP_HEIGHT, MAP_KINDS, MAP_WIDTH, TERRAINS, TERRAIN_CODES, WILD_TERRAIN, World, blankMap, gridPosition, inferTerrain, mapFileName, readMap, writeMap, type MapCell } from '@fq2js/engine/world';
-import { gameWorld, makeMap, makeWorld, tempDir } from '../helpers.ts';
+import { KINDS, MAP_HEIGHT, MAP_KINDS, MAP_WIDTH, TERRAINS, TERRAIN_CODES, WILD_TERRAIN, World, blankMap, gridPosition, inferTerrain, mapFileName, readMap, writeMap, type MapCell } from '../src/world.ts';
+import { makeMap, makeWorld, tempDir } from '../src/testing.ts';
 
 // A map file as stored in data/maps, with `changes` applied.
 function mapFile(changes: Record<string, unknown> = {}): Record<string, unknown> {
@@ -46,12 +46,6 @@ describe('World.load', () => {
         expect(() => loadOne(changes)).toThrow(message);
     });
 
-    test('loads every screen in data/maps', () => {
-        const world = gameWorld();
-        expect(world.has(721)).toBe(true);
-        expect(world.has(82)).toBe(true);
-        expect(world.has(9999)).toBe(false);
-    });
 });
 
 describe('World', () => {
@@ -95,15 +89,7 @@ describe('World', () => {
     });
 });
 
-const MAPS = join(import.meta.dir, '..', '..', 'data', 'maps');
-
 describe('writeMap', () => {
-    test('writes every map file in data/maps back exactly as it is', () => {
-        for (const file of readdirSync(MAPS)) {
-            const text = readFileSync(join(MAPS, file), 'utf8');
-            expect(writeMap(readMap(JSON.parse(text), file))).toBe(text);
-        }
-    });
 
     test('what it writes reads back the same', () => {
         const map = blankMap(9, 3, { ch: '▓', fg: 14, bg: 4, solid: true, terrain: 'grass' });
@@ -252,14 +238,6 @@ describe('terrain and names', () => {
         expect(WILD_TERRAIN).toEqual(['grass', 'forest', 'mountain']);
     });
 
-    test("the game's maps all have terrain and some have names", () => {
-        const world = gameWorld();
-        expect(world.name(82)).toBe('Stone Valley');
-        expect(world.terrain(82, 30, 10)).toBe('road');
-        for (const file of readdirSync(MAPS)) {
-            expect(readFileSync(join(MAPS, file), 'utf8')).toContain('"terrain"');
-        }
-    });
 });
 
 test('map backgrounds must be colours 0 to 7 (the 16-colour terminal has no more)', () => {

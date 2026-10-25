@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { ItemCatalogue, count, effectOf, equip, gearOf, give, readItems, take, wear, type Carrier } from '@fq2js/engine/items';
-import { itemCatalogue as items, readData } from '../helpers.ts';
+import { ItemCatalogue, count, effectOf, equip, gearOf, give, readItems, take, wear, type Carrier } from '../src/items.ts';
+import { itemCatalogue as items, readFixture } from '../src/fixture.ts';
 
 const carrier = (changes: Partial<Carrier> = {}): Carrier => ({ items: {}, weapon: null, armour: null, ...changes });
 
 describe('readItems', () => {
     test('reads data/items.json', () => {
-        const catalogue = readItems(readData('items.json'));
+        const catalogue = readItems(readFixture('items.json'));
         expect(catalogue.get('stick')).toEqual({
             id: 'stick',
             name: 'Stick',

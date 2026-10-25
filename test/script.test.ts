@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
-import { HEIGHT } from '@fq2js/engine/screen';
-import { readItems } from '@fq2js/engine/items';
-import { makeMap, makeWorld, monster, newPlayer, row, scriptContext, typed } from '../helpers.ts';
+import { HEIGHT } from '../src/screen.ts';
+import { readItems } from '../src/items.ts';
+import { makeMap, makeWorld, monster, row, typed } from '../src/testing.ts';
+import { newPlayer, scriptContext } from '../src/fixture.ts';
 
 let random: Mock<() => number> | null = null;
 afterEach(() => {
@@ -11,15 +12,15 @@ afterEach(() => {
 
 describe('ScriptContext: the player', () => {
     test("reads the player's state", () => {
-        const { g } = scriptContext({ player: newPlayer({ x: 3, y: 4, screen: 82, exp: 7 }, { bankGold: 5 }) });
-        expect([g.x, g.y, g.screenNumber, g.exp, g.flags.bankGold]).toEqual([3, 4, 82, 7, 5]);
-        expect(g.version).toBe('V0.94 Rev D');
+        const { g } = scriptContext({ player: newPlayer({ x: 3, y: 4, screen: 82, exp: 7 }, { visits: 5 }) });
+        expect([g.x, g.y, g.screenNumber, g.exp, g.flags.visits]).toEqual([3, 4, 82, 7, 5]);
+        expect(g.version).toBe('V1.0 Rev A');
     });
 
     test('hp stays between 0 and maxHp, in whole numbers', () => {
         const { g, game } = scriptContext();
         g.hp = 1000;
-        expect(g.hp).toBe(250);
+        expect(g.hp).toBe(100);
         g.hp = -5;
         expect(g.hp).toBe(0);
         g.hp = 10.7;
@@ -46,14 +47,14 @@ describe('ScriptContext: the player', () => {
 
     test('flags', () => {
         const { g, game } = scriptContext();
-        g.flags.ownsCastle = true;
-        expect(game.playing.flags.ownsCastle).toBe(true);
+        g.flags.met = true;
+        expect(game.playing.flags.met).toBe(true);
     });
 
     test('healFull', () => {
         const { g } = scriptContext({ player: newPlayer({ hp: 3 }) });
         g.healFull();
-        expect(g.hp).toBe(250);
+        expect(g.hp).toBe(100);
     });
 
     test('using it with no game in progress is an error', () => {
@@ -143,7 +144,7 @@ describe('ScriptContext: moving', () => {
         expect(g.destination).toBeNull();
         g.goto(82, 5, 6);
         expect(g.destination).toEqual({ screen: 82, x: 5, y: 6 });
-        expect(game.playing.screen).toBe(721);
+        expect(game.playing.screen).toBe(1);
     });
 });
 
@@ -217,9 +218,9 @@ describe('ScriptContext: items', () => {
     });
 
     test("use applies the item's effect and uses it up", () => {
-        const { g } = scriptContext({ player: newPlayer({ hp: 248, items: { wildberries: 1 } }) });
+        const { g } = scriptContext({ player: newPlayer({ hp: 98, items: { wildberries: 1 } }) });
         expect(g.use('wildberries')).toBe('You eat some wildberries. Delicious! (+5 hitpoints)');
-        expect(g.hp).toBe(250);
+        expect(g.hp).toBe(100);
         expect(g.count('wildberries')).toBe(0);
         expect(() => g.use('wildberries')).toThrow("The player doesn't have Wildberries.");
         expect(() => g.use('stick')).toThrow("Stick can't be used.");
@@ -228,7 +229,7 @@ describe('ScriptContext: items', () => {
     test('an effect can raise every stat', () => {
         const { g } = scriptContext({ player: newPlayer({ hp: 10, items: { tonic: 1 } }), items: readItems([{ id: 'tonic', name: 'Tonic', kind: 'usable', effect: { heal: 50, maxHp: 10, strength: 2, defense: 3 } }]) });
         g.use('tonic');
-        expect([g.hp, g.maxHp, g.strength, g.defense]).toEqual([60, 260, 12, 13]);
+        expect([g.hp, g.maxHp, g.strength, g.defense]).toEqual([60, 110, 12, 13]);
     });
 
     test("fights use the gear's power, and gear can break", async () => {
@@ -252,7 +253,8 @@ describe('ScriptContext: monsters', () => {
     test("a scripted fight runs the monster's hook too", async () => {
         random = spyOn(Math, 'random').mockReturnValue(0.99);
         const { g } = scriptContext({ steps: ['enter', 'x', 'x'] });
-        // The real Tree Elf's hook drops wildberries; this one has 1 hp.
+        // The Tree Elf's hook (the fixture's elf-berries event) drops
+        // wildberries; this one has 1 hp.
         expect(await g.fight({ ...g.monster('tree-elf'), hp: 1 })).toBe('won');
         expect(g.count('wildberries')).toBe(3);
     });

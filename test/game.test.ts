@@ -1,101 +1,17 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readConfig, type Content } from '@fq2js/engine/game';
-import type { Player } from '@fq2js/engine/player';
-import { Bestiary, type Monster } from '@fq2js/engine/combat';
-import { Saves } from '@fq2js/engine/saves';
-import type { Key } from '@fq2js/engine/terminal';
-import { title, help, credits, worldMapLegend } from '../../content/ui.ts';
-import { caught, monster, makeGameWith, makeMap, makeWorld, readData, row, screenText, tempDir, typed, type FakeTerminal, type Step } from '../helpers.ts';
+import { readConfig, type Content } from '../src/game.ts';
+import type { Player } from '../src/player.ts';
+import { Bestiary, type Monster } from '../src/combat.ts';
+import { Saves } from '../src/saves.ts';
+import type { Key } from '../src/terminal.ts';
+import { caught, monster, makeMap, makeWorld, row, screenText, tempDir, typed, type FakeTerminal, type Step } from '../src/testing.ts';
+import { content as testContent, makeGameWith, readFixture, start as START, testWorld, type TestFlags } from '../src/fixture.ts';
 
-// ---- A small game to drive the engine with
+// ---- Test Quest (see fixture.ts for its world and triggers)
 
-type TestFlags = { visits: number; met: boolean; name: string };
-
-// Screen 1 (land): a wall north of the start, a talking tile, a door to
-// screen 3, a sign that takes over the screen and a warp. Screen 2 (east,
-// with monsters) has a wall on its west edge. Screen 3 is an interior.
-// Screen 82 is south of screen 2; there's nothing south of screen 1.
-const world = makeWorld(makeMap(1, 1, ['10,9']), makeMap(2, 5, ['1,5']), makeMap(3, 2), makeMap(82, 1));
-
-const START: Player<TestFlags> = {
-    name: '',
-    sex: 'male',
-    screen: 1,
-    x: 10,
-    y: 10,
-    mapScreen: 1,
-    hp: 100,
-    maxHp: 100,
-    gold: 20,
-    strength: 10,
-    defense: 10,
-    exp: 0,
-    items: {},
-    weapon: null,
-    armour: null,
-    monsters: false,
-    superhuman: false,
-    flags: { visits: 0, met: false, name: '' },
-};
-
-const testContent: Content<TestFlags> = {
-    title,
-    help,
-    credits,
-    worldMapLegend,
-    statusLine: (p) => `HP ${p.hp}/${p.maxHp} Gold ${p.gold}`,
-    inventory: async (g) => {
-        g.overlay(`{y 2}{x 2}INVENTORY gold=${g.gold}`);
-        await g.key();
-    },
-    newGame: async (g) => {
-        g.cls();
-        g.print('A NEW GAME BEGINS');
-        await g.key();
-    },
-    start: START,
-    screens: {
-        1: {
-            show: (g) => {
-                if (g.flags.met) {
-                    g.overlay('{x 30}{y 2}MET');
-                }
-            },
-            at: {
-                '12,10': (g) => {
-                    g.flags.visits++;
-                    g.write('You step on a creaky board.');
-                },
-                '15,12': (g) => {
-                    g.write('First news.');
-                    g.write('Second news.');
-                },
-                '9,10': async (g) => {
-                    g.cls();
-                    g.print('A SIGN');
-                    await g.key();
-                },
-                '10,11': (g) => {
-                    g.goto(3, 5, 5);
-                },
-                '11,10': (g) => {
-                    if (g.flags.visits > 0) {
-                        g.moveTo(20, 20);
-                    }
-                },
-            },
-        },
-        3: {
-            at: {
-                '5,5': (g) => {
-                    g.flags.met = true;
-                },
-            },
-        },
-    },
-};
+const world = testWorld();
 
 const player = (changes: Partial<Player<TestFlags>> = {}): Player<TestFlags> => ({ ...structuredClone(START), ...changes });
 
@@ -166,7 +82,7 @@ function mockClock(): { advance(ms: number): void } {
 describe('title menu', () => {
     test('Leave this place shows the credits and ends the game', async () => {
         const { term } = await play(['escape']);
-        expect(screenText(term.screen)).toContain('Thank you for playing Final Quest 2');
+        expect(screenText(term.screen)).toContain('Thank you for playing Test Quest!');
     });
 
     test('arrows move and wrap around', async () => {
@@ -747,6 +663,7 @@ describe('settings editor', () => {
 
     test('starts the flags on a fresh page when the screen fills up', async () => {
         const many = { ...START, flags: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`flag${i}`, i])) };
+        const { title, help, credits, worldMapLegend } = testContent;
         const content: Content<Record<string, number>> = { title, help, credits, worldMapLegend, start: many, screens: {}, inventory: () => undefined, newGame: () => undefined, statusLine: () => '' };
         const { game, term } = makeGameWith(content, { world, monsters: onlyMonster(monster()), debug: true });
         term.feed('S', ...keys('enter', 10), 'y', () => {
@@ -761,8 +678,8 @@ describe('settings editor', () => {
     });
 });
 
-test('readConfig reads data/config.json and rejects bad data', () => {
-    expect(readConfig(readData('config.json'))).toMatchObject({ title: 'Final Quest 2', superhumanFactor: 3 });
+test('readConfig reads config.json and rejects bad data', () => {
+    expect(readConfig(readFixture('config.json'))).toMatchObject({ title: 'Test Quest', superhumanFactor: 3 });
     expect(() => readConfig({ title: 'x' })).toThrow('config.json.company: expected a string');
 });
 

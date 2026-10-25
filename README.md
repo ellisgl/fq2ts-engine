@@ -7,5 +7,8 @@ and its data (maps, items, monsters).
 
 [testing.ts](src/testing.ts) is a kit for testing games: a terminal that plays
 back scripted key presses, and small maps, worlds and monsters.
+[fixture.ts](src/fixture.ts) is Test Quest, a tiny game (four screens, a few
+triggers, data in [fixture/](src/fixture/)) that the engine, server and tools
+are tested on.
 
 See [games/fq2/](../../games/fq2/) for a game built on it.

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { equipped, restorePlayer, type Player } from '@fq2js/engine/player';
-import { itemCatalogue as items } from '../helpers.ts';
+import { equipped, restorePlayer, type Player } from '../src/player.ts';
+import { itemCatalogue as items } from '../src/fixture.ts';
 
 type TestFlags = { seen: boolean; count: number; name: string };
 

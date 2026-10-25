@@ -1,0 +1,81 @@
+{
+  "monsters": [
+    {
+      "id": "tree-frog", "name": "Tree Frog", "pronoun": "it", "hp": 15, "gold": 15, "exp": 11,
+      "says": "Want some poison? Tree Frog Gasps at you!",
+      "attacks": [{ "text": "spits poison at you", "power": 15 }, { "text": "leaps at your face", "power": 12 }],
+      "kill": "You squash the Tree Frog flat. Ribbit."
+    },
+    {
+      "id": "woodpecker", "name": "Woodpecker", "pronoun": "it", "hp": 25, "gold": 25, "exp": 25,
+      "says": "I need to peck something. How about you smirks Woodpecker!",
+      "attacks": [{ "text": "pecks your head", "power": 25 }, { "text": "flaps in your eyes", "power": 18 }]
+    },
+    {
+      "id": "owl", "name": "Owl", "pronoun": "she", "hp": 30, "gold": 30, "exp": 32,
+      "says": "Hello. And what is your name woos the Owl!",
+      "attacks": [{ "text": "swoops at you", "power": 30 }, { "text": "rakes you with her talons", "power": 34 }]
+    },
+    {
+      "id": "leopard", "name": "Leopard", "pronoun": "he", "hp": 40, "gold": 40, "exp": 42,
+      "says": "Damn. I need a new head.  Yours looks perfect!",
+      "attacks": [{ "text": "pounces on you", "power": 40 }, { "text": "claws at you", "power": 36 }]
+    },
+    {
+      "id": "wolf", "name": "Wolf", "pronoun": "he", "hp": 45, "gold": 45, "exp": 57,
+      "says": "MMMMM. Fresh meat!!! Growls Wolf!",
+      "attacks": [{ "text": "bites you", "power": 45 }, { "text": "snaps at your legs", "power": 40 }],
+      "kill": "The Wolf whimpers and runs off into the trees. Then falls over."
+    },
+    {
+      "id": "bear", "name": "Bear", "pronoun": "he", "hp": 55, "defense": 5, "gold": 55, "exp": 69,
+      "says": "I need some hair laughs Bear!",
+      "attacks": [{ "text": "mauls you", "power": 55 }, { "text": "gives you a bear hug", "power": 60 }]
+    },
+    {
+      "id": "tree-elf", "name": "Tree Elf", "pronoun": "she", "hp": 65, "gold": 65, "exp": 73,
+      "says": "Heya baby... Come ere... whispers the Elf!",
+      "attacks": [{ "text": "shoots an arrow at you", "power": 65 }, { "text": "kicks you in the shin", "power": 50 }],
+      "after": { "won": "elf-berries" }
+    },
+    {
+      "id": "cheetah", "name": "Cheetah", "pronoun": "she", "hp": 85, "gold": 85, "exp": 81,
+      "says": "Got any cheese?  I have a strange craving for cheese!",
+      "attacks": [{ "text": "runs circles around you", "power": 85 }, { "text": "bites your ankle", "power": 80 }]
+    },
+    {
+      "id": "tiger", "name": "Tiger", "pronoun": "he", "hp": 95, "gold": 95, "exp": 94,
+      "says": "Grrr!!! Get the hell out of here yells Tiger!",
+      "attacks": [{ "text": "slashes at you", "power": 95 }, { "text": "roars in your face", "power": 70 }]
+    },
+    {
+      "id": "lion", "name": "Lion", "pronoun": "he", "hp": 105, "defense": 10, "gold": 105, "exp": 106,
+      "says": "As the king I sentence you to death growls Lion!",
+      "attacks": [{ "text": "pounces on you", "power": 105 }, { "text": "swipes a royal paw at you", "power": 110 }],
+      "kill": "The king is dead. Long live you."
+    },
+    {
+      "id": "master-roshi", "name": "Master Roshi", "pronoun": "he", "hp": 350, "gold": 1000, "exp": 100,
+      "says": "Beat me if you can... Loser!!",
+      "attacks": [{ "text": "kicks you", "power": 50 }, { "text": "throws you over his shoulder", "power": 50 }]
+    }
+  ],
+  "tables": [
+    {
+      "name": "default",
+      "chance": 30,
+      "tiers": [
+        { "belowExp": 500, "pick": 3 },
+        { "belowExp": 5000, "pick": 6 },
+        { "belowExp": 10000, "pick": 10 }
+      ],
+      "monsters": ["tree-frog", "woodpecker", "owl", "leopard", "wolf", "bear", "tree-elf", "cheetah", "tiger", "lion"]
+    },
+    {
+      "name": "forest",
+      "chance": 20,
+      "tiers": [{ "belowExp": 500, "pick": 2 }],
+      "monsters": ["woodpecker", "owl", "wolf", "bear", "tree-elf"]
+    }
+  ]
+}

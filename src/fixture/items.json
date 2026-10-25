@@ -1,0 +1,16 @@
+[
+  { "id": "stick", "name": "Stick", "kind": "weapon", "power": 15, "value": 50, "breakChance": 2, "description": "A sturdy stick. Mostly." },
+  { "id": "shotgun", "name": "Shotgun", "kind": "weapon", "power": 100, "value": 1000, "description": "Loud, and quite convincing." },
+  { "id": "chaingun", "name": "Chain Gun", "kind": "weapon", "power": 250, "value": 5000, "description": "For when one bullet isn't enough." },
+  { "id": "rpg", "name": "RPG", "kind": "weapon", "power": 500, "value": 10000, "description": "A rocket on your shoulder." },
+  { "id": "minigun", "name": "Minigun", "kind": "weapon", "power": 10000, "value": 100000, "sellable": false, "description": "Nobody will buy something this suspicious." },
+
+  { "id": "vest", "name": "Vest", "kind": "armour", "power": 15, "value": 50, "breakChance": 2, "description": "Keeps the wind off." },
+  { "id": "heavy-coat", "name": "Heavy Coat", "kind": "armour", "power": 50, "value": 100, "description": "Warm and padded." },
+  { "id": "chain-mail", "name": "Chain Mail", "kind": "armour", "power": 100, "value": 500, "description": "Heavy, noisy, effective." },
+  { "id": "death-armour", "name": "Death Armour", "kind": "armour", "power": 150, "value": 1000, "description": "Black, spiky and very fashionable." },
+
+  { "id": "wildberries", "name": "Wildberries", "kind": "usable", "value": 1, "sellable": false, "description": "Small, sweet and good for you.", "effect": { "heal": 5 }, "useText": "You eat some wildberries. Delicious! (+5 hitpoints)" },
+
+  { "id": "port-city-pass", "name": "Port City Pass", "kind": "quest", "description": "Lets you through the gates of Port City." }
+]
