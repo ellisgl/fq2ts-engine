@@ -171,6 +171,7 @@ export interface GameSetup<F extends FlagRecord> {
     figures?: GameOptions<F>['figures'];
     moved?: GameOptions<F>['moved'];
     keys?: GameOptions<F>['keys'];
+    fought?: GameOptions<F>['fought'];
 }
 
 // A game of any content on a scripted terminal; whatever isn't given comes
@@ -178,7 +179,7 @@ export interface GameSetup<F extends FlagRecord> {
 // a new temporary folder.
 export function makeGameWith<F extends FlagRecord>(
     gameContent: Content<F>,
-    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys }: GameSetup<F> = {},
+    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys, fought }: GameSetup<F> = {},
 ): { game: Game<F>; term: FakeTerminal } {
     const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
     const game = new Game({
@@ -197,6 +198,7 @@ export function makeGameWith<F extends FlagRecord>(
         ...(figures ? { figures } : {}),
         ...(moved ? { moved } : {}),
         ...(keys ? { keys } : {}),
+        ...(fought ? { fought } : {}),
     });
     return { game, term };
 }

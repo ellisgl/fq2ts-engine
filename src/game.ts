@@ -106,6 +106,9 @@ export interface GameOptions<F extends FlagRecord> {
     // Called when the player is somewhere new (a step, another screen, a
     // script moving them), once the game is waiting for the next key.
     moved?(player: Player<F>): void;
+    // Called when a fight ends, either way (a random one or a script's): a
+    // server's news.
+    fought?(player: Player<F>, monster: Monster, result: FightResult): void;
     // More keys while exploring (a server's P, L...), by key, each a script.
     // They're listed by ?, with their help.
     keys?: Readonly<Record<string, ExtraKey<F>>>;
@@ -126,6 +129,8 @@ export interface ExtraKey<F extends FlagRecord> {
 }
 
 const MESSAGE_SECONDS = 4;
+// How long a message shows when there are more waiting behind it.
+const BUSY_MESSAGE_SECONDS = 1.5;
 // How many past messages the back-buffer (B) keeps.
 const MESSAGE_LOG = 100;
 
@@ -181,6 +186,7 @@ export class Game<F extends FlagRecord> {
     private showPosition: boolean;
     private messageText: string | null = null;
     private messageUntil = 0;
+    private messageShownAt = 0;
     // Messages waiting for the status bar, and every recent one.
     private readonly messageQueue: string[] = [];
     private readonly messageLog: string[] = [];
@@ -195,6 +201,7 @@ export class Game<F extends FlagRecord> {
     private readonly figures: ((screen: number) => readonly Figure[]) | undefined;
     private readonly moved: ((player: Player<F>) => void) | undefined;
     private readonly keys: Readonly<Record<string, ExtraKey<F>>>;
+    private readonly fought: ((player: Player<F>, monster: Monster, result: FightResult) => void) | undefined;
     // Told from outside, for when the game is next waiting for a key: the
     // figures have moved, and notices to show.
     private figuresChanged = false;
@@ -202,7 +209,7 @@ export class Game<F extends FlagRecord> {
     // Where the player was when `moved` was last told.
     private lastPlace = '';
 
-    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {} }: GameOptions<F>) {
+    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {}, fought }: GameOptions<F>) {
         this.term = term;
         this.screen = term.screen;
         this.world = world;
@@ -241,6 +248,7 @@ export class Game<F extends FlagRecord> {
         this.figures = figures;
         this.moved = moved;
         this.keys = keys;
+        this.fought = fought;
     }
 
     // ---- Told from outside (on a server, by other players' sessions)
@@ -688,8 +696,10 @@ export class Game<F extends FlagRecord> {
         this.checkpoint();
     }
 
-    // The script a monster runs after a fight that ended this way, if any.
+    // A fight is over: `fought` is told, and this is the script the monster
+    // runs after a fight that ended this way, if any.
     public afterFight(monster: Monster, result: FightResult): Script<F> | undefined {
+        this.fought?.(this.playing, monster, result);
         const name = monster.after[result];
         return name === undefined ? undefined : this.content.events?.[name];
     }
@@ -781,6 +791,11 @@ export class Game<F extends FlagRecord> {
         this.drawPlayer();
     }
 
+    // Puts the status bar back (after something else used its row).
+    public showStatus(): void {
+        this.drawStatus();
+    }
+
     private drawStatus(): void {
         const text = this.messageText ?? this.content.statusLine(this.playing, this.config);
         statusBar(this.screen, text);
@@ -796,7 +811,9 @@ export class Game<F extends FlagRecord> {
         }
 
         if (this.messageText !== null && this.messageTurn === this.turn && Date.now() < this.messageUntil) {
+            // With more to show, each gets less time.
             this.messageQueue.push(text);
+            this.messageUntil = Math.min(this.messageUntil, this.messageShownAt + BUSY_MESSAGE_SECONDS * 1000);
             return;
         }
 
@@ -813,7 +830,8 @@ export class Game<F extends FlagRecord> {
     private showMessage(text: string): void {
         this.messageText = text;
         this.messageTurn = this.turn;
-        this.messageUntil = Date.now() + MESSAGE_SECONDS * 1000;
+        this.messageShownAt = Date.now();
+        this.messageUntil = this.messageShownAt + (this.messageQueue.length ? BUSY_MESSAGE_SECONDS : MESSAGE_SECONDS) * 1000;
         this.drawStatus();
     }
 

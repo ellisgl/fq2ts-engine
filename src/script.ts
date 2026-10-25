@@ -10,7 +10,8 @@
 
 import { draw } from './text.ts';
 import { at } from './assert.ts';
-import { choose, scrollText, textInput } from './ui.ts';
+import { STATUS_ROW, askText, choose, scrollText, statusBar, textInput } from './ui.ts';
+import { cellCount } from './chars.ts';
 import { fight, type FightResult, type Monster } from './combat.ts';
 import { HEIGHT, type Screen } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
@@ -268,6 +269,23 @@ export class ScriptContext<F extends FlagRecord> {
 
     public async input({ x, y, length }: { x: number; y: number; length: number }): Promise<string> {
         return textInput(this.term, { x, y, length });
+    }
+
+    // Like input, but Escape cancels it: null.
+    public async ask({ x, y, length }: { x: number; y: number; length: number }): Promise<string | null> {
+        return askText(this.term, { x, y, length });
+    }
+
+    // A question on the status bar, leaving the map as it is (for talking,
+    // say): the answer, or null on Escape. The status bar comes back after.
+    public async askLine(question: string, length = 60): Promise<string | null> {
+        const { screen } = this.term;
+        statusBar(screen, '');
+        draw(screen, `{white}${question}`, { x: 3, y: STATUS_ROW, bg: 1, wrap: false });
+        const x = 3 + cellCount(question) + 1;
+        const answer = await askText(this.term, { x, y: STATUS_ROW, length: Math.max(1, Math.min(length + 1, 78 - x)), fg: 15, bg: 1 });
+        this.game.showStatus();
+        return answer;
     }
 
     // Asks for a whole number (anything else counts as 0).

@@ -123,6 +123,29 @@ describe('ScriptContext: talking', () => {
         expect(await g.number(where)).toBe(0);
     });
 
+    test('ask is input that Escape cancels', async () => {
+        const { g } = scriptContext({ steps: [...'hi', 'enter', 'x', 'escape'] });
+        expect(await g.ask({ x: 1, y: 23, length: 10 })).toBe('hi');
+        expect(await g.ask({ x: 1, y: 23, length: 10 })).toBeNull();
+    });
+
+    test('askLine asks on the status bar, and puts it back', async () => {
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    expect(row(term.screen, 23)).toContain('Say:');
+                    return 'h';
+                },
+                'i',
+                'enter',
+                'escape',
+            ],
+        });
+        expect(await g.askLine('Say:')).toBe('hi');
+        expect(row(term.screen, 23)).toContain('HP 100/100');
+        expect(await g.askLine('Say:')).toBeNull();
+    });
+
     test('sleep', async () => {
         const { g } = scriptContext();
         const started = Date.now();

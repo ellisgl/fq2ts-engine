@@ -8,7 +8,7 @@ import { Bestiary, type Monster } from '../src/combat.ts';
 import { Saves } from '../src/saves.ts';
 import type { Key } from '../src/terminal.ts';
 import { caught, monster, makeMap, makeWorld, row, screenText, tempDir, typed, type FakeTerminal, type Step } from '../src/testing.ts';
-import { content as testContent, makeGameWith, readFixture, start as START, testWorld, type TestFlags } from '../src/fixture.ts';
+import { content as testContent, makeGameWith, readFixture, scriptContext, start as START, testWorld, type TestFlags } from '../src/fixture.ts';
 
 // ---- Test Quest (see fixture.ts for its world and triggers)
 
@@ -29,6 +29,7 @@ interface Options {
     figures?: GameOptions<TestFlags>['figures'];
     moved?: GameOptions<TestFlags>['moved'];
     keys?: GameOptions<TestFlags>['keys'];
+    fought?: GameOptions<TestFlags>['fought'];
 }
 
 // A bestiary whose "default" table holds just this monster.
@@ -777,6 +778,37 @@ describe('messages, the back-buffer and the other keys', () => {
         await run(game, term);
     });
 
+    test('with more waiting behind it, a message shows for less time', async () => {
+        const clock = mockClock();
+        const { game, term } = setup({ player: player({ x: 14, y: 12 }) });
+        term.feed(
+            ...RESUME,
+            'right',
+            () => {
+                expect(row(term.screen, 23)).toContain('First news.');
+                clock.advance(1500);
+                return null;
+            },
+            () => {
+                // The last one gets its full time.
+                expect(row(term.screen, 23)).toContain('Second news.');
+                clock.advance(3000);
+                return null;
+            },
+            () => {
+                expect(row(term.screen, 23)).toContain('Second news.');
+                clock.advance(1000);
+                return null;
+            },
+            () => {
+                expect(row(term.screen, 23)).toContain('HP 100/100');
+                return 'escape';
+            },
+            'escape',
+        );
+        await run(game, term);
+    });
+
     test("the next step's message replaces what's left", async () => {
         mockClock();
         const { game, term } = setup({ player: player({ x: 14, y: 12 }) });
@@ -1002,6 +1034,26 @@ describe('presence (for a server)', () => {
             return 'escape';
         }, ...LEAVE);
         await run(game, term);
+    });
+
+    test('fought is told how every fight ends, random or scripted', async () => {
+        const fights: string[] = [];
+        const fought = (p: Player<TestFlags>, m: Monster, result: string): void => {
+            fights.push(`${p.screen}: ${m.name} ${result}`);
+        };
+        // A random fight on screen 2 (it has monsters), lost to a monster
+        // that can't be hurt: attack until it's over, then leave.
+        mockRandom(0);
+        const { game, term } = setup({ player: player({ screen: 2, x: 5, y: 5, monsters: true }), monsters: onlyMonster(monster({ name: 'Wall', hp: 9999, attack: 200 })), fought });
+        const untilOver: Step = () => (fights.length ? 'escape' : 'enter');
+        term.feed(...RESUME, 'right', ...keys(untilOver, 30));
+        await game.run();
+        expect(fights).toEqual(['2: Wall lost']);
+
+        const { g } = scriptContext({ fought, steps: ['enter', 'x', 'x'] });
+        mockRandom(0.99);
+        await g.fight(monster({ name: 'Gnat', hp: 1, attack: 0 }));
+        expect(fights.at(-1)).toBe('1: Gnat won');
     });
 
     test('extra keys run their script, and ? lists them', async () => {

@@ -11,8 +11,11 @@ const WHITE = 15;
 
 // The bar on row 23: shaded ends and centred white-on-blue text. Text too
 // long for the bar is cut off under the shaded ends.
+// The row of the status bar, under the map.
+export const STATUS_ROW = 23;
+
 export function statusBar(screen: Screen, text: string): void {
-    const y = 23;
+    const y = STATUS_ROW;
     for (let x = 1; x <= 79; x++) {
         screen.put(x, y, ' ', WHITE, BLUE);
     }
