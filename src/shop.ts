@@ -4,6 +4,7 @@
 import type { FlagRecord } from './player.ts';
 import type { ItemDef, ItemKind } from './items.ts';
 import type { ScriptContext } from './script.ts';
+import type { WorldRecord } from './shared.ts';
 
 const CONTINUE = '{lightgreen}<{green}Continue{lightgreen}>';
 
@@ -23,14 +24,14 @@ export interface SellOptions {
 const label = (name: string, price: string, note: string, colour = '{white}'): string =>
     `${colour}${name.padEnd(18)}{yellow}${price.padEnd(9)}{gray}${note.slice(0, 49)}`;
 
-async function pause<F extends FlagRecord>(g: ScriptContext<F>, ...lines: string[]): Promise<void> {
+async function pause<F extends FlagRecord, W extends WorldRecord = WorldRecord>(g: ScriptContext<F, W>, ...lines: string[]): Promise<void> {
     g.print('', ...lines, '', CONTINUE);
     await g.key();
 }
 
 // Lists the items for sale. Returns the id of the item bought, or null.
 // Buying a weapon or armour offers to equip it.
-export async function buyMenu<F extends FlagRecord>(g: ScriptContext<F>, ids: readonly string[], { prices = {} }: BuyOptions = {}): Promise<string | null> {
+export async function buyMenu<F extends FlagRecord, W extends WorldRecord = WorldRecord>(g: ScriptContext<F, W>, ids: readonly string[], { prices = {} }: BuyOptions = {}): Promise<string | null> {
     const items = ids.map((id) => g.item(id));
     const price = (item: ItemDef): number => prices[item.id] ?? item.value;
     const labels = items.map((item) => label(item.name, `$${price(item)}`, item.description));
@@ -60,7 +61,7 @@ export async function buyMenu<F extends FlagRecord>(g: ScriptContext<F>, ids: re
 
 // Lists the player's items for selling. Returns the id of the item sold, or
 // null. Items that can't be sold are shown greyed out.
-export async function sellMenu<F extends FlagRecord>(g: ScriptContext<F>, { kinds, rate = 0.5 }: SellOptions = {}): Promise<string | null> {
+export async function sellMenu<F extends FlagRecord, W extends WorldRecord = WorldRecord>(g: ScriptContext<F, W>, { kinds, rate = 0.5 }: SellOptions = {}): Promise<string | null> {
     const entries = g.inventory.filter((e) => !kinds || kinds.includes(e.item.kind));
     if (!entries.length) {
         await pause(g, '{green}You have nothing they want.');

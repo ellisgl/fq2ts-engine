@@ -3,12 +3,13 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readConfig, type Content, type Figure, type GameOptions } from '../src/game.ts';
 import type { ScriptContext } from '../src/script.ts';
+import { MemoryWorld } from '../src/shared.ts';
 import type { Player } from '../src/player.ts';
 import { Bestiary, type Monster } from '../src/combat.ts';
 import { Saves } from '../src/saves.ts';
 import type { Key } from '../src/terminal.ts';
 import { caught, monster, makeMap, makeWorld, row, screenText, tempDir, typed, type FakeTerminal, type Step } from '../src/testing.ts';
-import { content as testContent, makeGameWith, readFixture, scriptContext, start as START, testWorld, type TestFlags } from '../src/fixture.ts';
+import { content as testContent, makeGameWith, readFixture, scriptContext, start as START, testWorld, type TestFlags, type TestWorld } from '../src/fixture.ts';
 
 // ---- Test Quest (see fixture.ts for its world and triggers)
 
@@ -26,10 +27,10 @@ interface Options {
     saves?: Saves;
     monsters?: Bestiary;
     cheats?: boolean;
-    figures?: GameOptions<TestFlags>['figures'];
-    moved?: GameOptions<TestFlags>['moved'];
-    keys?: GameOptions<TestFlags>['keys'];
-    fought?: GameOptions<TestFlags>['fought'];
+    figures?: GameOptions<TestFlags, TestWorld>['figures'];
+    moved?: GameOptions<TestFlags, TestWorld>['moved'];
+    keys?: GameOptions<TestFlags, TestWorld>['keys'];
+    fought?: GameOptions<TestFlags, TestWorld>['fought'];
 }
 
 // A bestiary whose "default" table holds just this monster.
@@ -670,7 +671,7 @@ describe('settings editor', () => {
     test('starts the flags on a fresh page when the screen fills up', async () => {
         const many = { ...START, flags: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`flag${i}`, i])) };
         const { title, help, credits, worldMapLegend } = testContent;
-        const content: Content<Record<string, number>> = { title, help, credits, worldMapLegend, start: many, screens: {}, inventory: () => undefined, newGame: () => undefined, statusLine: () => '' };
+        const content: Content<Record<string, number>> = { title, help, credits, worldMapLegend, start: many, world: {}, screens: {}, inventory: () => undefined, newGame: () => undefined, statusLine: () => '' };
         const { game, term } = makeGameWith(content, { world, monsters: onlyMonster(monster()), debug: true });
         term.feed('S', ...keys('enter', 10), 'y', () => {
             expect(row(term.screen, 24)).toContain('Edit flags? (Y/N): y');
@@ -1080,6 +1081,79 @@ describe('presence (for a server)', () => {
             return 'escape';
         }, ...LEAVE);
         await run(game, term);
+    });
+});
+
+describe("the world's state (g.world)", () => {
+    // Into the hut (screen 3) and along to the bell at (20,5), which rings.
+    const RING = ['down', ...keys('right', 15)];
+
+    test('a script sets it; a save keeps it; a new game starts it again; loading brings it back', async () => {
+        const saves = new Saves(tempDir());
+        const { game, term } = setup({ saves });
+        term.feed(
+            // A new game, the bell rung, and saved in slot 1.
+            'enter', 'x', ...RING,
+            () => {
+                expect(screenText(term.screen)).toContain('The bell has rung 1 times.');
+                return 'escape';
+            },
+            'down', 'enter', 'enter', ...typed('Bell'),
+            // Another new game (the menu is on Save Game now): the bell
+            // hasn't been rung in this one.
+            'up', 'enter', 'x',
+            () => {
+                expect({ ...game.worldState }).toEqual({ rings: 0, ringers: [] });
+                return 'escape';
+            },
+            // Loading slot 1 brings back its world (and, standing on the
+            // bell, the player rings it again as they arrive).
+            'down', 'down', 'enter', 'enter',
+            () => {
+                expect({ ...game.worldState }).toEqual({ rings: 2, ringers: [''] });
+                return 'escape';
+            },
+            'escape',
+        );
+        await run(game, term);
+        expect(saves.load(1)).toMatchObject({ world: { rings: 1, ringers: [''] } });
+    });
+
+    test('a save from before there was world state loads, with the starting values', async () => {
+        const saves = new Saves(tempDir());
+        saves.save(1, 'Old', player({ gold: 3 }));
+        const { game } = await play(['down', 'down', 'enter', 'enter', ...LEAVE], { saves });
+        expect(game.worldState.rings).toBe(0);
+        expect(game.playing.gold).toBe(3);
+    });
+
+    test('a save with a bad world says why', async () => {
+        const saves = new Saves(tempDir());
+        saves.save(1, 'Bad', { ...player(), world: { rings: 'lots' } });
+        const { game, term } = setup({ saves });
+        term.feed('down', 'down', 'enter', 'enter', () => {
+            expect(row(term.screen, 24)).toContain('slot1.json.world.rings: expected a number');
+            return 'x';
+        }, 'escape');
+        await run(game, term);
+    });
+
+    test('a store from outside (a server) is used, and kept by no save', () => {
+        const store = new MemoryWorld();
+        store.set('rings', 41);
+        const { g } = scriptContext({ worldStore: store });
+        expect(g.world.rings).toBe(41);
+        g.world.rings++;
+        expect(store.get('rings')).toBe(42);
+    });
+
+    test('g.news goes to the news option, or nowhere', () => {
+        const news: string[] = [];
+        scriptContext({ news: (text) => news.push(text) }).g.news('Something happened.');
+        expect(news).toEqual(['Something happened.']);
+        expect(() => {
+            scriptContext().g.news('Nobody hears this.');
+        }).not.toThrow();
     });
 });
 

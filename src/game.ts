@@ -12,6 +12,7 @@ import { gearOf, wear, type ItemCatalogue } from './items.ts';
 import { record, string, number, field } from './validate.ts';
 import type { Color, Screen } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
+import { MemoryWorld, restoreWorld, worldView, type WorldRecord, type WorldStore } from './shared.ts';
 
 // data/config.json
 export interface Config {
@@ -38,16 +39,16 @@ export function readConfig(value: unknown, path = 'config.json'): Config {
 // "x,y" on a screen.
 export type Coord = `${number},${number}`;
 
-export interface ScreenScripts<F extends FlagRecord> {
+export interface ScreenScripts<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // Runs every time the screen is drawn.
-    show?: Script<F>;
+    show?: Script<F, W>;
     // Runs when the player walks onto or bumps into (x, y), or arrives there
     // from another screen.
-    at?: Readonly<Partial<Record<Coord, Script<F>>>>;
+    at?: Readonly<Partial<Record<Coord, Script<F, W>>>>;
 }
 
 // Everything that makes a particular game, as opposed to the engine.
-export interface Content<F extends FlagRecord> {
+export interface Content<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     title: {
         art(config: Config): string[];
         menu: {
@@ -64,25 +65,29 @@ export interface Content<F extends FlagRecord> {
     worldMapLegend: readonly string[];
     statusLine(player: Player<F>, config: Config): string;
     // The inventory screen (I). It handles its own keys.
-    inventory: Script<F>;
-    newGame: Script<F>;
+    inventory: Script<F, W>;
+    newGame: Script<F, W>;
     // The player at the start of a new game.
     start: Player<F>;
-    screens: Readonly<Partial<Record<number, ScreenScripts<F>>>>;
+    // What belongs to the world rather than any player, with its starting
+    // values (scripts use it as g.world). In single-player it's saved with
+    // the game; on a server, everyone playing shares it. {} for none.
+    world: W;
+    screens: Readonly<Partial<Record<number, ScreenScripts<F, W>>>>;
     // Scripts that monsters' after-fight hooks (Monster.after) run, by name.
-    events?: Readonly<Record<string, Script<F>>>;
+    events?: Readonly<Record<string, Script<F, W>>>;
     // Brings a loaded save up to date, given the save as it was on disk (for
     // anything restorePlayer can't work out by itself).
     upgradeSave?(saved: unknown, player: Player<F>): void;
 }
 
-export interface GameOptions<F extends FlagRecord> {
+export interface GameOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     term: Terminal;
     world: World;
     config: Config;
     monsters: Bestiary;
     items: ItemCatalogue;
-    content: Content<F>;
+    content: Content<F, W>;
     // Save slots for the title menu (single-player). A server keeps players
     // itself, through autosave, and has none.
     saves?: Saves;
@@ -106,12 +111,19 @@ export interface GameOptions<F extends FlagRecord> {
     // Called when the player is somewhere new (a step, another screen, a
     // script moving them), once the game is waiting for the next key.
     moved?(player: Player<F>): void;
+    // Where the world's state (Content.world) is kept: a server shares one
+    // among its games. Without one, the game keeps it, and saves it with
+    // the player.
+    worldStore?: WorldStore;
+    // A line for the news (g.news): a server's daily news. Without one,
+    // scripts' news goes nowhere.
+    news?(text: string): void;
     // Called when a fight ends, either way (a random one or a script's): a
     // server's news.
     fought?(player: Player<F>, monster: Monster, result: FightResult): void;
     // More keys while exploring (a server's P, L...), by key, each a script.
     // They're listed by ?, with their help.
-    keys?: Readonly<Record<string, ExtraKey<F>>>;
+    keys?: Readonly<Record<string, ExtraKey<F, W>>>;
 }
 
 // Something drawn on a cell of the map.
@@ -122,10 +134,10 @@ export interface Figure {
     fg: Color;
 }
 
-export interface ExtraKey<F extends FlagRecord> {
+export interface ExtraKey<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // For the list of keys (?), e.g. "who's online".
     help: string;
-    run: Script<F>;
+    run: Script<F, W>;
 }
 
 const MESSAGE_SECONDS = 4;
@@ -170,14 +182,14 @@ const SETTINGS: readonly (readonly [string, NumericField])[] = [
     ['Max Hp', 'maxHp'], ['Strength', 'strength'], ['Defense', 'defense'], ['Gold', 'gold'],
 ];
 
-export class Game<F extends FlagRecord> {
+export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     public readonly term: Terminal;
     public readonly config: Config;
     public readonly items: ItemCatalogue;
     private readonly screen: Screen;
     private readonly world: World;
     public readonly monsters: Bestiary;
-    private readonly content: Content<F>;
+    private readonly content: Content<F, W>;
     private readonly saves: Saves | null;
     private readonly useScreensaver: boolean;
     private readonly debug: boolean;
@@ -198,9 +210,15 @@ export class Game<F extends FlagRecord> {
     private mapShown = false;
     private readonly autosave: ((player: Player<F>) => void) | undefined;
     private readonly cheats: boolean;
+    // The world's state, as scripts see it, and (single-player) the game's
+    // own store, which saves keep.
+    public readonly worldState: W;
+    private readonly ownWorld: MemoryWorld | null;
+    // Where g.news goes.
+    public readonly news: (text: string) => void;
     private readonly figures: ((screen: number) => readonly Figure[]) | undefined;
     private readonly moved: ((player: Player<F>) => void) | undefined;
-    private readonly keys: Readonly<Record<string, ExtraKey<F>>>;
+    private readonly keys: Readonly<Record<string, ExtraKey<F, W>>>;
     private readonly fought: ((player: Player<F>, monster: Monster, result: FightResult) => void) | undefined;
     // Told from outside, for when the game is next waiting for a key: the
     // figures have moved, and notices to show.
@@ -209,7 +227,7 @@ export class Game<F extends FlagRecord> {
     // Where the player was when `moved` was last told.
     private lastPlace = '';
 
-    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {}, fought }: GameOptions<F>) {
+    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {}, fought, worldStore, news = () => undefined }: GameOptions<F, W>) {
         this.term = term;
         this.screen = term.screen;
         this.world = world;
@@ -245,6 +263,9 @@ export class Game<F extends FlagRecord> {
         this.player = player ?? null;
         this.autosave = autosave;
         this.cheats = cheats;
+        this.news = news;
+        this.ownWorld = worldStore ? null : new MemoryWorld();
+        this.worldState = worldView(content.world, worldStore ?? this.ownWorld ?? new MemoryWorld());
         this.figures = figures;
         this.moved = moved;
         this.keys = keys;
@@ -348,7 +369,7 @@ export class Game<F extends FlagRecord> {
         return this.saves;
     }
 
-    private script(): ScriptContext<F> {
+    private script(): ScriptContext<F, W> {
         return new ScriptContext(this);
     }
 
@@ -437,7 +458,9 @@ export class Game<F extends FlagRecord> {
         }
     }
 
+    // (From the title menu: a new single-player game starts a new world.)
     private async newGame(): Promise<void> {
+        this.ownWorld?.reset();
         await this.begin(this.freshPlayer());
     }
 
@@ -634,14 +657,14 @@ export class Game<F extends FlagRecord> {
         }
     }
 
-    private triggerAt(x: number, y: number): Script<F> | undefined {
+    private triggerAt(x: number, y: number): Script<F, W> | undefined {
         return this.content.screens[this.playing.screen]?.at?.[`${x},${y}`];
     }
 
     // Runs a script and deals with what it did. Returns true if the player's
     // step should not go ahead (the script moved them, travelled or used the
     // whole screen).
-    private async runScript(script: Script<F>): Promise<boolean> {
+    private async runScript(script: Script<F, W>): Promise<boolean> {
         const p = this.playing;
         const before = `${p.screen},${p.x},${p.y}`;
         const g = this.script();
@@ -698,7 +721,7 @@ export class Game<F extends FlagRecord> {
 
     // A fight is over: `fought` is told, and this is the script the monster
     // runs after a fight that ended this way, if any.
-    public afterFight(monster: Monster, result: FightResult): Script<F> | undefined {
+    public afterFight(monster: Monster, result: FightResult): Script<F, W> | undefined {
         this.fought?.(this.playing, monster, result);
         const name = monster.after[result];
         return name === undefined ? undefined : this.content.events?.[name];
@@ -953,7 +976,7 @@ export class Game<F extends FlagRecord> {
         // An empty slot suggests the player's name.
         const suggested = slot.name ?? this.player.name.slice(0, 15);
         const name = (await textInput(this.term, { x: 30, y, length: 16, value: suggested, fg: 15, bg: 0 })).trim();
-        this.slots.save(slot.slot, name && name !== 'Empty' ? name : 'NoName', this.player);
+        this.slots.save(slot.slot, name && name !== 'Empty' ? name : 'NoName', { ...this.player, world: this.ownWorld?.saved() ?? {} });
     }
 
     private async loadScreen(): Promise<boolean> {
@@ -963,10 +986,14 @@ export class Game<F extends FlagRecord> {
         }
 
         let player;
+        let world: WorldRecord;
         try {
             const saved = this.slots.load(slot.slot);
             player = restorePlayer(this.content.start, saved, this.items, `slot${slot.slot}.json`);
             this.content.upgradeSave?.(saved, player);
+            // (Saves from before there was world state have none.)
+            const savedWorld = typeof saved === 'object' && saved !== null && 'world' in saved ? saved.world : undefined;
+            world = restoreWorld(this.content.world, savedWorld, `slot${slot.slot}.json.world`);
         } catch (err) {
             this.screen.fillRow(24);
             this.screen.text(1, 24, `That save can't be loaded: ${err instanceof Error ? err.message : String(err)}`, 12, 0);
@@ -977,6 +1004,7 @@ export class Game<F extends FlagRecord> {
 
         this.placeSafely(player);
         this.player = player;
+        this.ownWorld?.reset(world);
         this.noclip = false;
 
         return true;

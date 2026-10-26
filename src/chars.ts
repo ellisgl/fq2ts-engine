@@ -55,6 +55,7 @@ export function fitsCell(grapheme: string): boolean {
         if (known.size >= KNOWN_LIMIT) {
             known.clear();
         }
+
         known.set(grapheme, fits);
     }
 

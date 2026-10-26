@@ -7,7 +7,8 @@
 // triggers are a creaky board (12,10), two messages (15,12), a sign that
 // takes over the screen (9,10), a door to screen 3 (10,11) and a warp that
 // works once the board has been stepped on (11,10). Screen 2 (east, with
-// monsters) has a wall on its west edge. Screen 3 is an interior. Screen 82
+// monsters) has a wall on its west edge. Screen 3 is an interior,
+// with a bell at (20,5) that rings for everyone (the world's state). Screen 82
 // is south of screen 2; there's nothing south of screen 1.
 
 import { readFileSync } from 'node:fs';
@@ -21,6 +22,7 @@ import { World } from './world.ts';
 import type { Key } from './terminal.ts';
 import type { FlagRecord, Player } from './player.ts';
 import { FakeTerminal, tempDir, type Step } from './testing.ts';
+import type { WorldRecord } from './shared.ts';
 
 // The fixture's data folder, laid out as a game's is (config.json,
 // items.json, monsters.json and maps/), for whatever loads a game from one.
@@ -35,8 +37,11 @@ export const config: Config = readConfig(readFixture('config.json'));
 export const bestiary: Bestiary = readBestiary(readFixture('monsters.json'));
 export const itemCatalogue: ItemCatalogue = readItems(readFixture('items.json'));
 
-// (A type alias, not an interface, so that it fits the engine's FlagRecord.)
+// (Type aliases, not interfaces, so that they fit the engine's FlagRecord
+// and WorldRecord.)
 export type TestFlags = { visits: number; met: boolean; name: string };
+// The world's: a bell anyone can ring, and who has.
+export type TestWorld = { rings: number; ringers: readonly string[] };
 
 export const start: Player<TestFlags> = {
     name: '',
@@ -64,7 +69,7 @@ export function testWorld(): World {
     return World.load(join(FIXTURE_DATA, 'maps'));
 }
 
-export const content: Content<TestFlags> = {
+export const content: Content<TestFlags, TestWorld> = {
     title: {
         art: ({ title, version, revision }) => [
             `{y 3}{x 30}{white}${title} ${version} ${revision}`,
@@ -98,6 +103,7 @@ export const content: Content<TestFlags> = {
         await g.key();
     },
     start,
+    world: { rings: 0, ringers: [] },
     screens: {
         1: {
             show: (g) => {
@@ -134,6 +140,14 @@ export const content: Content<TestFlags> = {
                 '5,5': (g) => {
                     g.flags.met = true;
                 },
+                // The bell, shared by everyone.
+                '20,5': (g) => {
+                    g.world.rings++;
+                    if (!g.world.ringers.includes(g.name)) {
+                        g.world.ringers = [...g.world.ringers, g.name];
+                    }
+                    g.write(`The bell has rung ${g.world.rings} times.`);
+                },
             },
         },
     },
@@ -152,7 +166,7 @@ export function newPlayer(changes: Partial<Player<TestFlags>> = {}, flags: Parti
     return player;
 }
 
-export interface GameSetup<F extends FlagRecord> {
+export interface GameSetup<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     steps?: readonly Step[];
     fallback?: Key;
     player?: Player<F>;
@@ -168,19 +182,21 @@ export interface GameSetup<F extends FlagRecord> {
     noSaves?: boolean;
     // A server's: cheats, other players drawn, moves reported, more keys.
     cheats?: boolean;
-    figures?: GameOptions<F>['figures'];
-    moved?: GameOptions<F>['moved'];
-    keys?: GameOptions<F>['keys'];
-    fought?: GameOptions<F>['fought'];
+    figures?: GameOptions<F, W>['figures'];
+    moved?: GameOptions<F, W>['moved'];
+    keys?: GameOptions<F, W>['keys'];
+    fought?: GameOptions<F, W>['fought'];
+    worldStore?: GameOptions<F, W>['worldStore'];
+    news?: GameOptions<F, W>['news'];
 }
 
 // A game of any content on a scripted terminal; whatever isn't given comes
 // from the fixture (its world, config, monsters and items), and saves go to
 // a new temporary folder.
-export function makeGameWith<F extends FlagRecord>(
-    gameContent: Content<F>,
-    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys, fought }: GameSetup<F> = {},
-): { game: Game<F>; term: FakeTerminal } {
+export function makeGameWith<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
+    gameContent: Content<F, W>,
+    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys, fought, worldStore, news }: GameSetup<F, W> = {},
+): { game: Game<F, W>; term: FakeTerminal } {
     const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
     const game = new Game({
         term,
@@ -199,17 +215,19 @@ export function makeGameWith<F extends FlagRecord>(
         ...(moved ? { moved } : {}),
         ...(keys ? { keys } : {}),
         ...(fought ? { fought } : {}),
+        ...(worldStore ? { worldStore } : {}),
+        ...(news ? { news } : {}),
     });
     return { game, term };
 }
 
 // Test Quest, with a player already in it.
-export function makeGame(setup: GameSetup<TestFlags> = {}): { game: Game<TestFlags>; term: FakeTerminal } {
+export function makeGame(setup: GameSetup<TestFlags, TestWorld> = {}): { game: Game<TestFlags, TestWorld>; term: FakeTerminal } {
     return makeGameWith(content, { player: newPlayer(), ...setup });
 }
 
 // A script context in Test Quest: what content scripts get as `g`.
-export function scriptContext(setup: GameSetup<TestFlags> = {}): { g: ScriptContext<TestFlags>; game: Game<TestFlags>; term: FakeTerminal } {
+export function scriptContext(setup: GameSetup<TestFlags, TestWorld> = {}): { g: ScriptContext<TestFlags, TestWorld>; game: Game<TestFlags, TestWorld>; term: FakeTerminal } {
     const { game, term } = makeGame(setup);
     return { g: new ScriptContext(game), game, term };
 }

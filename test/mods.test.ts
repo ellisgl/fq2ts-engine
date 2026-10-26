@@ -39,7 +39,7 @@ describe('readMod', () => {
         const said: string[] = [];
         const mod = readMod({ id: 'well', name: 'Well', version: '1.2', api: MOD_API, description: 'A well.', flags: { wishes: 0 }, newGame: () => said.push('new') }, 'well/mod.ts');
         expect(mod).toMatchObject({ id: 'well', name: 'Well', version: '1.2', description: 'A well.', flags: { wishes: 0 } });
-        await mod.newGame?.(scriptContext().g, { flags: {} });
+        await mod.newGame?.(scriptContext().g, { flags: {}, world: {} });
         expect(said).toEqual(['new']);
     });
 
@@ -99,6 +99,30 @@ describe('applyMods', () => {
 
     test('scripts for a screen that does not exist are an error', () => {
         expect(() => applyMods(game(), [loaded({ id: 'm', screens: { 404: { at: { '1,1': () => undefined } } } })])).toThrow('The mod "m" has scripts for screen 404, which doesn\'t exist.');
+    });
+
+    test("a mod's world state goes beside the game's, as <mod id>.<name>, and its scripts see it", async () => {
+        const well = loaded({
+            id: 'well',
+            world: { wishes: 0, wishers: [] },
+            newGame: (g, mod) => {
+                mod.world['wishes'] = Number(mod.world['wishes']) + 1;
+                mod.world['wishers'] = ['Ann'];
+                g.world['rings'] = 5;
+            },
+        });
+        const modded = applyMods(game(), [well]);
+        const world: Record<string, unknown> = modded.content.world;
+        expect(world).toEqual({ rings: 0, ringers: [], 'well.wishes': 0, 'well.wishers': [] });
+
+        const { game: running, term } = makeGameWith(modded.content, { ...modded, steps: ['enter', 'x', 'escape', 'escape'] });
+        await running.run();
+        expect(term.remaining).toBe(0);
+        expect({ ...running.worldState }).toEqual({ rings: 5, ringers: [], 'well.wishes': 1, 'well.wishers': ['Ann'] });
+    });
+
+    test('a mod with world values that are not values is refused', () => {
+        expect(() => readMod({ id: 'm', name: 'x', version: '1', api: MOD_API, world: { a: { b: 1 } } }, 'x/mod.ts')).toThrow('x/mod.ts.world.a: expected true or false, a number, a string or a list of strings');
     });
 
     test("a mod's flags start in the player as <mod id>.<flag>", () => {

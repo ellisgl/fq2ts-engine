@@ -29,15 +29,17 @@ import { InvalidData, field, integer, record, string } from './validate.ts';
 import type { Content, Coord, ScreenScripts } from './game.ts';
 import type { FlagRecord, FlagValue } from './player.ts';
 import type { Script, ScriptContext } from './script.ts';
+import type { WorldRecord, WorldValue } from './shared.ts';
 
 // The version of what mods are given. A mod says which it was written for
 // (`api`), and isn't loaded by an engine with another.
 export const MOD_API = 1;
 
-// What a mod's scripts get besides `g`: the mod's own flags (as it declared
-// them; they're kept in the player's flags as "<mod id>.<flag>").
-export interface ModTools<MF extends FlagRecord> {
+// What a mod's scripts get besides `g`: the mod's own flags and world state
+// (as it declared them; they're kept with the game's as "<mod id>.<name>").
+export interface ModTools<MF extends FlagRecord, MW extends WorldRecord = WorldRecord> {
     flags: MF;
+    world: MW;
 }
 
 // What a mod's scripts get as `g`: everything a game's scripts get. The
@@ -45,20 +47,20 @@ export interface ModTools<MF extends FlagRecord> {
 export type ModContext = { [K in keyof ScriptContext<FlagRecord>]: ScriptContext<FlagRecord>[K] };
 
 // A mod's scripts are the game's, with the mod's tools too.
-export type ModScript<MF extends FlagRecord> = (g: ModContext, mod: ModTools<MF>) => void | Promise<void>;
+export type ModScript<MF extends FlagRecord, MW extends WorldRecord = WorldRecord> = (g: ModContext, mod: ModTools<MF, MW>) => void | Promise<void>;
 
-export interface ModScreen<MF extends FlagRecord> {
+export interface ModScreen<MF extends FlagRecord, MW extends WorldRecord = WorldRecord> {
     // Runs every time the screen is drawn, after the game's.
-    show?: ModScript<MF>;
+    show?: ModScript<MF, MW>;
     // Runs when the player steps on (x, y). Only on tiles with no trigger.
-    at?: Readonly<Partial<Record<Coord, ModScript<MF>>>>;
+    at?: Readonly<Partial<Record<Coord, ModScript<MF, MW>>>>;
 }
 
 // What a mod's mod.ts exports as its default. For type checking, write it as
 //   export default { ... } satisfies Mod<{ wishes: number }>;
 // importing the type only (import type { Mod } from '@fq2js/engine/mods'),
 // so the mod needs nothing at run time.
-export interface Mod<MF extends FlagRecord = FlagRecord> {
+export interface Mod<MF extends FlagRecord = FlagRecord, MW extends WorldRecord = WorldRecord> {
     // Lower case letters, digits and dashes; no two mods may share one.
     id: string;
     name: string;
@@ -68,11 +70,14 @@ export interface Mod<MF extends FlagRecord = FlagRecord> {
     description?: string;
     // The mod's flags, with their starting values.
     flags?: MF;
-    screens?: Readonly<Partial<Record<number, ModScreen<MF>>>>;
+    // The mod's world state (shared by everyone on a server), with its
+    // starting values.
+    world?: MW;
+    screens?: Readonly<Partial<Record<number, ModScreen<MF, MW>>>>;
     // Scripts for monsters' after-fight hooks (Monster.after), by name.
-    events?: Readonly<Record<string, ModScript<MF>>>;
+    events?: Readonly<Record<string, ModScript<MF, MW>>>;
     // Runs after the game's own opening, when a new game starts.
-    newGame?: ModScript<MF>;
+    newGame?: ModScript<MF, MW>;
 }
 
 // A mod, read from its folder.
@@ -85,8 +90,8 @@ export interface LoadedMod {
 }
 
 // The parts of a game that mods add to.
-export interface ModdableGame<F extends FlagRecord> {
-    content: Content<F>;
+export interface ModdableGame<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    content: Content<F, W>;
     world: World;
     items: ItemCatalogue;
     monsters: Bestiary;
@@ -180,6 +185,10 @@ export function readMod(value: unknown, path: string): Mod {
         mod.flags = readFlags(r['flags'], `${path}.flags`);
     }
 
+    if (r['world'] !== undefined) {
+        mod.world = readWorld(r['world'], `${path}.world`);
+    }
+
     if (r['screens'] !== undefined) {
         const screens: Partial<Record<number, ModScreen<FlagRecord>>> = {};
         for (const [key, entry] of Object.entries(record(r['screens'], `${path}.screens`))) {
@@ -219,6 +228,20 @@ function readFlags(value: unknown, path: string): FlagRecord {
     return flags;
 }
 
+function readWorld(value: unknown, path: string): WorldRecord {
+    const world: WorldRecord = {};
+    for (const [name, v] of Object.entries(record(value, path))) {
+        if (Array.isArray(v) && v.every((item: unknown) => typeof item === 'string')) {
+            world[name] = v.map(String);
+        } else if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') {
+            world[name] = v;
+        } else {
+            throw new InvalidData(`${path}.${name}: expected true or false, a number, a string or a list of strings`);
+        }
+    }
+    return world;
+}
+
 function readScreen(value: unknown, path: string): ModScreen<FlagRecord> {
     const r = record(value, path);
     const screen: { show?: ModScript<FlagRecord>; at?: Partial<Record<Coord, ModScript<FlagRecord>>> } = {};
@@ -256,15 +279,18 @@ function readScript(value: unknown, path: string): ModScript<FlagRecord> {
 // ---- Adding mods to a game
 
 // The game with its mods added. The game itself is left as it was.
-export function applyMods<F extends FlagRecord>(game: ModdableGame<F>, mods: readonly LoadedMod[]): ModdableGame<F> {
+export function applyMods<F extends FlagRecord, W extends WorldRecord = WorldRecord>(game: ModdableGame<F, W>, mods: readonly LoadedMod[]): ModdableGame<F, W> {
     const world = new World(new Map(game.world.screens().map((screen) => [screen, game.world.export(screen)])));
     const items = game.items.all();
     const monsters = new Map(game.monsters.allMonsters());
     const tables: EncounterTable[] = game.monsters.allTables();
-    const screens: Partial<Record<number, ScreenScripts<F>>> = { ...game.content.screens };
-    const events: Record<string, Script<F>> = { ...game.content.events };
+    const screens: Partial<Record<number, ScreenScripts<F, W>>> = { ...game.content.screens };
+    const events: Record<string, Script<F, W>> = { ...game.content.events };
     const start = structuredClone(game.content.start);
     const startFlags: FlagRecord = start.flags;
+    // (The game's world state, and the mods' beside it.)
+    const worldState: W = { ...game.content.world };
+    const worldValues: WorldRecord = worldState;
     let newGame = game.content.newGame;
 
     for (const loaded of mods) {
@@ -273,7 +299,14 @@ export function applyMods<F extends FlagRecord>(game: ModdableGame<F>, mods: rea
             throw new InvalidData(`The mod "${mod.id}" adds ${what}, which the game (or another mod) already has.`);
         };
         const defaults = mod.flags ?? {};
-        const run = (script: ModScript<FlagRecord>): Script<F> => (g) => script(g, { flags: flagView(mod.id, defaults, g.flags) });
+        const worldDefaults = mod.world ?? {};
+        const run = (script: ModScript<FlagRecord>): Script<F, W> => (g) => script(g, { flags: flagView(mod.id, defaults, g.flags), world: modWorldView(mod.id, worldDefaults, g.world) });
+        for (const name of Object.keys(worldDefaults)) {
+            const value = worldDefaults[name];
+            if (value !== undefined) {
+                worldValues[`${mod.id}.${name}`] = value;
+            }
+        }
 
         for (const name of Object.keys(defaults)) {
             startFlags[`${mod.id}.${name}`] = defaults[name] ?? false;
@@ -325,7 +358,7 @@ export function applyMods<F extends FlagRecord>(game: ModdableGame<F>, mods: rea
             }
 
             const before = screens[screen] ?? {};
-            const at: Partial<Record<Coord, Script<F>>> = { ...before.at };
+            const at: Partial<Record<Coord, Script<F, W>>> = { ...before.at };
             for (const [coord, script] of coords(modScreen.at)) {
                 if (at[coord]) {
                     conflict(`a trigger at ${coord} on screen ${screen}`);
@@ -346,8 +379,25 @@ export function applyMods<F extends FlagRecord>(game: ModdableGame<F>, mods: rea
         world,
         items: new ItemCatalogue(items),
         monsters: new Bestiary(monsters, tables),
-        content: { ...game.content, start, screens, events, newGame },
+        content: { ...game.content, start, world: worldState, screens, events, newGame },
     };
+}
+
+// A mod's scripts' view of its world state: each name reads and sets the
+// game's "<mod id>.<name>".
+function modWorldView<MW extends WorldRecord>(id: string, defaults: MW, world: WorldRecord): MW {
+    const view = { ...defaults };
+    for (const name of Object.keys(defaults)) {
+        const key = `${id}.${name}`;
+        Object.defineProperty(view, name, {
+            enumerable: true,
+            get: () => world[key] ?? defaults[name],
+            set: (value: WorldValue) => {
+                world[key] = value;
+            },
+        });
+    }
+    return view;
 }
 
 // A mod's scripts' view of its flags: each one reads and writes the
@@ -367,7 +417,7 @@ function flagView<MF extends FlagRecord>(id: string, defaults: MF, flags: FlagRe
     return view;
 }
 
-function chain<F extends FlagRecord>(first: Script<F> | undefined, then: Script<F>): Script<F> {
+function chain<F extends FlagRecord, W extends WorldRecord = WorldRecord>(first: Script<F, W> | undefined, then: Script<F, W>): Script<F, W> {
     if (!first) {
         return then;
     }

@@ -19,11 +19,12 @@ import { equipped, type FlagRecord, type Player, type Sex, type Slot } from './p
 import { count, effectOf, equip, gearOf, give, take, wear, type ItemDef } from './items.ts';
 import { buyMenu, sellMenu, type BuyOptions, type SellOptions } from './shop.ts';
 import type { Game } from './game.ts';
+import type { WorldRecord } from './shared.ts';
 
 // An option in g.choice: its text, or its text and whether to show it.
 export type Choice = string | { text: string; show: boolean };
 
-export type Script<F extends FlagRecord> = (g: ScriptContext<F>) => void | Promise<void>;
+export type Script<F extends FlagRecord, W extends WorldRecord = WorldRecord> = (g: ScriptContext<F, W>) => void | Promise<void>;
 
 export interface Destination {
     screen: number;
@@ -35,15 +36,15 @@ export type Path = readonly (readonly [number, number])[];
 
 const clampStat = (value: number): number => Math.max(0, Math.trunc(value));
 
-export class ScriptContext<F extends FlagRecord> {
-    private readonly game: Game<F>;
+export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    private readonly game: Game<F, W>;
     private readonly term: Terminal;
     private readonly screen: Screen;
     private printRow = 1;
     public tookScreen = false;
     public destination: Destination | null = null;
 
-    public constructor(game: Game<F>) {
+    public constructor(game: Game<F, W>) {
         this.game = game;
         this.term = game.term;
         this.screen = game.term.screen;
@@ -191,6 +192,20 @@ export class ScriptContext<F extends FlagRecord> {
     public sell(options: SellOptions = {}): Promise<string | null> {
         return sellMenu(this, options);
     }
+    // What belongs to the world, not the player (see Content.world): on a
+    // server, everyone shares it. Lists can't be changed in place; set a
+    // new one.
+    public get world(): W {
+        return this.game.worldState;
+    }
+
+    // A line of news, for everyone (a server's daily news, D). It's markup:
+    // escape anything a player typed (escapeMarkup). In single-player,
+    // there's no news, and it goes nowhere.
+    public news(text: string): void {
+        this.game.news(text);
+    }
+
     public get flags(): F {
         return this.player.flags;
     }
