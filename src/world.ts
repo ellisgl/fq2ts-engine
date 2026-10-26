@@ -123,9 +123,25 @@ function grid<T>(cell: (ch: string) => T | undefined, expected: string): Reader<
         });
 }
 
-const hex = (ch: string): Color | undefined => (/^[0-9A-F]$/.test(ch) ? parseInt(ch, 16) : undefined);
-// Backgrounds are the first 8 colours only (the 16-colour terminal has no more).
-const lowHex = (ch: string): Color | undefined => (/^[0-7]$/.test(ch) ? parseInt(ch, 16) : undefined);
+// A grid of colours: each row one hex digit a cell (0-F, the 16 colours),
+// or two (00-FF, any of the 256) once a colour past F is used.
+const colorGrid: Reader<Color[][]> = (value, path) =>
+    array(value, path, (row, rowPath) => {
+        const text = string(row, rowPath);
+        const digits = text.length === MAP_WIDTH * 2 ? 2 : 1;
+        if (text.length !== MAP_WIDTH * digits) {
+            throw new InvalidData(`${rowPath}: expected ${MAP_WIDTH} cells (one hex digit each, or two), found ${text.length} characters`);
+        }
+
+        return Array.from({ length: MAP_WIDTH }, (_, i) => {
+            const cell = text.slice(i * digits, (i + 1) * digits);
+            if (!/^[0-9A-F]+$/.test(cell)) {
+                throw new InvalidData(`${rowPath}[${i}]: expected ${digits === 1 ? 'a hex digit' : 'two hex digits'}, found "${cell}"`);
+            }
+
+            return parseInt(cell, 16);
+        });
+    });
 const kind = oneOf(MAP_KINDS);
 const terrainCode = (ch: string): Terrain | undefined => TERRAINS.find((t) => TERRAIN_CODES[t] === ch);
 
@@ -135,8 +151,8 @@ export function readMap(value: unknown, path: string): GameMap {
     // Any character one column wide (stored in NFC, so an accented letter
     // is the same however it was typed).
     const tiles = field(r, 'tiles', path, grid((ch) => (fitsCell(ch) ? ch.normalize('NFC') : undefined), 'a character one column wide'));
-    const fg = field(r, 'fg', path, grid(hex, 'a hex digit'));
-    const bg = field(r, 'bg', path, grid(lowHex, 'a digit from 0 to 7'));
+    const fg = field(r, 'fg', path, colorGrid);
+    const bg = field(r, 'bg', path, colorGrid);
     const solid = field(r, 'solid', path, grid((ch) => (ch === '#' ? true : ch === '.' ? false : undefined), '# or .'));
     for (const [name, rows] of [['tiles', tiles], ['fg', fg], ['bg', bg], ['solid', solid]] as const) {
         if (rows.length !== MAP_HEIGHT) {
@@ -165,7 +181,12 @@ export function readMap(value: unknown, path: string): GameMap {
     return map;
 }
 
-const HEX = '0123456789ABCDEF';
+// A grid of colours as readMap reads it: one hex digit a cell if they're
+// all among the 16, otherwise two.
+function colorRows(grid: Color[][]): string[] {
+    const digits = grid.some((row) => row.some((c) => c > 15)) ? 2 : 1;
+    return grid.map((row) => row.map((c) => c.toString(16).toUpperCase().padStart(digits, '0')).join(''));
+}
 
 // A screen as the text of its data/maps file (the format readMap reads).
 export function writeMap(map: GameMap): string {
@@ -177,8 +198,8 @@ export function writeMap(map: GameMap): string {
         ...(map.encounters === undefined ? {} : { encounters: map.encounters }),
         ...(map.safe ? { safe: true } : {}),
         tiles: rows(map.tiles, (ch) => ch),
-        fg: rows(map.fg, (c) => HEX.charAt(c)),
-        bg: rows(map.bg, (c) => HEX.charAt(c)),
+        fg: colorRows(map.fg),
+        bg: colorRows(map.bg),
         solid: rows(map.solid, (s) => (s ? '#' : '.')),
         terrain: rows(map.terrain, (t) => TERRAIN_CODES[t]),
     };

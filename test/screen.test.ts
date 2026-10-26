@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { COLORS, HEIGHT, Screen, WIDTH } from '../src/screen.ts';
+import { COLORS, HEIGHT, Screen, WIDTH, colorDepth, rgb } from '../src/screen.ts';
 import { row } from '../src/testing.ts';
 
 describe('Screen', () => {
@@ -79,6 +79,39 @@ describe('Screen', () => {
             expect(screen.render()).toContain('\x1b[0;5;38;2;255;255;85;48;2;0;0;170m');
         });
 
+        test('256 colours: the CGA colours as the nearest of xterm\'s fixed ones', () => {
+            const screen = new Screen('256');
+            screen.render();
+            // Yellow (255,255,85) is 227; CGA's brown (170,85,0) is 130, not
+            // the terminal's own "yellow".
+            screen.put(1, 1, 'x', 14, 6);
+            screen.put(2, 1, 'y', 208, 232);
+            const out = screen.render();
+            expect(out).toContain('\x1b[0;38;5;227;48;5;130mx');
+            expect(out).toContain('\x1b[0;38;5;208;48;5;232my');
+        });
+
+        test('16 colours: the rest as the nearest of the 16, bright backgrounds too', () => {
+            const screen = new Screen('16');
+            screen.render();
+            screen.put(1, 1, 'x', 14, 1, true);
+            // 203 (255,95,95) is nearest light red (12), and 63 (95,95,255)
+            // light blue (9); 196, pure red, is nearer red (4) than light red.
+            screen.put(2, 1, 'y', 203, 63);
+            screen.put(3, 1, 'z', 196, 0);
+            const out = screen.render();
+            expect(out).toContain('\x1b[0;5;93;44mx');
+            expect(out).toContain('\x1b[0;91;104my');
+            expect(out).toContain('\x1b[0;31;40mz');
+        });
+
+        test('true colour draws any of the 256 exactly', () => {
+            const screen = new Screen('true');
+            screen.render();
+            screen.put(1, 1, 'x', 208, 244);
+            expect(screen.render()).toContain('\x1b[0;38;2;255;135;0;48;2;128;128;128mx');
+        });
+
         test('invalidate sends everything again', () => {
             const screen = new Screen();
             screen.render();
@@ -156,5 +189,28 @@ describe('Unicode on the screen', () => {
         screen.text(1, 1, 'Café 中 ☃', 15, 0);
         expect(row(screen, 1)).toBe('Café ? ☃');
         expect(screen.cell(6, 1).ch).toBe('?');
+    });
+});
+
+describe('colours', () => {
+    test('rgb: the CGA 16, then the cube, then the greys', () => {
+        expect(rgb(6)).toEqual([170, 85, 0]);
+        expect(rgb(16)).toEqual([0, 0, 0]);
+        expect(rgb(208)).toEqual([255, 135, 0]);
+        expect(rgb(231)).toEqual([255, 255, 255]);
+        expect(rgb(232)).toEqual([8, 8, 8]);
+        expect(rgb(255)).toEqual([238, 238, 238]);
+    });
+
+    test.each([
+        [{ FQ2_COLORS: '16', COLORTERM: 'truecolor' }, '16'],
+        [{ FQ2_COLORS: '256' }, '256'],
+        [{ FQ2_COLORS: 'nonsense', COLORTERM: 'truecolor', TERM: 'xterm' }, 'true'],
+        [{ COLORTERM: '24bit', TERM: 'xterm-256color' }, 'true'],
+        [{ TERM: 'xterm-256color' }, '256'],
+        [{ TERM: 'linux' }, '16'],
+        [{}, 'true'],
+    ] as const)('colorDepth(%p) is %p', (env, depth) => {
+        expect(colorDepth(env)).toBe(depth);
     });
 });

@@ -1,8 +1,9 @@
 // Coloured text markup used by all of the game's writing.
 //
 //   {yellow}        foreground colour (any name in COLORS)
-//   {blink red}     blinking foreground
-//   {on blue}       background colour (black ... gray)
+//   {color 208}     foreground colour by number, 0-255 (see screen.ts)
+//   {blink red}     blinking foreground (a name or a number)
+//   {on blue}       background colour (a name or a number)
 //   {x 27} {y 5}    move to a column / row
 //   {sp 10}         ten spaces in the current colours
 //   {center}        start here so that the whole line is centred
@@ -10,7 +11,7 @@
 //
 // Text drawn without an {on ...} keeps the background already on screen.
 
-import { COLORS, WIDTH, HEIGHT, type Color, type Point, type Screen } from './screen.ts';
+import { COLORS, COLOR_COUNT, WIDTH, HEIGHT, type Color, type Point, type Screen } from './screen.ts';
 import { cellCount, cells } from './chars.ts';
 
 type Token =
@@ -21,6 +22,16 @@ type Token =
   | { type: 'center' };
 
 const COLOR = new Map<string, Color>(COLORS.map((name, i) => [name, i]));
+
+// A colour's name, or its number (0-255).
+function colorArg(arg: string | undefined): Color | undefined {
+    if (arg === undefined) {
+        return undefined;
+    }
+
+    const n = /^\d{1,3}$/.test(arg) ? Number(arg) : NaN;
+    return n < COLOR_COUNT ? n : COLOR.get(arg);
+}
 
 const TAG = /\{\{|\{([a-z]+)(?: ([a-z0-9]+))?\}/g;
 
@@ -38,12 +49,12 @@ function tag(all: string, name: string | undefined, arg: string | undefined): To
         return { type: 'fg', color, blink: false };
     }
 
-    const argColor = arg === undefined ? undefined : COLOR.get(arg);
-    if (name === 'blink' && argColor !== undefined) {
-        return { type: 'fg', color: argColor, blink: true };
+    const argColor = colorArg(arg);
+    if ((name === 'color' || name === 'blink') && argColor !== undefined) {
+        return { type: 'fg', color: argColor, blink: name === 'blink' };
     }
 
-    if (name === 'on' && argColor !== undefined && argColor < 8) {
+    if (name === 'on' && argColor !== undefined) {
         return { type: 'bg', color: argColor };
     }
 

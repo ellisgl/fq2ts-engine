@@ -255,9 +255,39 @@ describe('terrain and names', () => {
 
 });
 
-test('map backgrounds must be colours 0 to 7 (the 16-colour terminal has no more)', () => {
-    const rows = (ch: string): string[] => Array.from({ length: MAP_HEIGHT }, () => ch.repeat(MAP_WIDTH));
-    expect(() => loadOne({ bg: rows('8') })).toThrow('0005.json.bg[0][0]: expected a digit from 0 to 7, found "8"');
+describe('map colours', () => {
+    const rows = (cell: string): string[] => Array.from({ length: MAP_HEIGHT }, () => cell.repeat(MAP_WIDTH));
+
+    test('one hex digit a cell for the 16; any background', () => {
+        const world = loadOne({ fg: rows('E'), bg: rows('C') });
+        expect(world.cell(5, 1, 1)).toMatchObject({ fg: 14, bg: 12 });
+    });
+
+    test('two hex digits a cell for all 256, row by row', () => {
+        const bg = rows('2');
+        bg[1] = 'D0'.repeat(MAP_WIDTH);
+        const world = loadOne({ fg: rows('E8'), bg });
+        expect(world.cell(5, 1, 1)).toMatchObject({ fg: 232, bg: 2 });
+        expect(world.cell(5, 1, 2)).toMatchObject({ fg: 232, bg: 208 });
+    });
+
+    test('written with two digits only in a grid that needs them', () => {
+        const map = makeMap(5);
+        map.fg[3]?.splice(0, 1, 208);
+        const file = JSON.parse(writeMap(map)) as { fg: string[]; bg: string[] };
+        expect(file.fg[3]).toStartWith('D00F');
+        expect(file.fg.every((row) => row.length === MAP_WIDTH * 2)).toBe(true);
+        expect(file.bg.every((row) => row.length === MAP_WIDTH)).toBe(true);
+        expect(readMap(file, 'x')).toEqual(map);
+    });
+
+    test.each([
+        [{ bg: rows('G') }, '0005.json.bg[0][0]: expected a hex digit, found "G"'],
+        [{ fg: rows('0g') }, '0005.json.fg[0][0]: expected two hex digits, found "0g"'],
+        [{ fg: rows('000') }, '0005.json.fg[0]: expected 79 cells (one hex digit each, or two), found 237 characters'],
+    ])('rejects colours it can\'t read: %p', (changes, message) => {
+        expect(() => loadOne(changes)).toThrow(message);
+    });
 });
 
 describe('Unicode in map files', () => {

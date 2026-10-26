@@ -28,7 +28,17 @@ describe('parse', () => {
         expect(strip('a{{b')).toBe('a{b');
     });
 
-    test.each(['{nope}', '{on yellow}', '{blink nope}', '{x a}', '{center 3}', '{yellow 3}'])('%s is left as text', (tag) => {
+    test('colours by number, 0 to 255, and any background', () => {
+        expect(parse('{color 208}{blink 16}{on 255}{on yellow}{color 7}')).toEqual([
+            { type: 'fg', color: 208, blink: false },
+            { type: 'fg', color: 16, blink: true },
+            { type: 'bg', color: 255 },
+            { type: 'bg', color: 14 },
+            { type: 'fg', color: 7, blink: false },
+        ]);
+    });
+
+    test.each(['{nope}', '{on 256}', '{color 1000}', '{color}', '{color nope}', '{blink nope}', '{x a}', '{center 3}', '{yellow 3}'])('%s is left as text', (tag) => {
         expect(strip(tag)).toBe(tag);
     });
 });

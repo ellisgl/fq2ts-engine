@@ -5,7 +5,7 @@
 // "delete") or as
 // the typed character. If the mouse is turned on (start({ mouse: true })),
 // mouse buttons arrive too, as MouseInput events.
-import { Screen, WIDTH, HEIGHT } from './screen.ts';
+import { Screen, WIDTH, HEIGHT, colorDepth, type ColorDepth } from './screen.ts';
 
 // A key name or a single typed character.
 export type Key = string;
@@ -178,7 +178,7 @@ export function parseKeys(input: string): InputEvent[] {
 }
 
 export class Terminal {
-    public readonly screen = new Screen();
+    public readonly screen: Screen;
     private readonly input: TerminalInput;
     private readonly output: TerminalOutput;
     private readonly queue: InputEvent[] = [];
@@ -192,7 +192,10 @@ export class Terminal {
     private readonly name: string;
 
     // `name` is the game's, for the messages when the terminal won't do.
-    public constructor({ input = process.stdin, output = process.stdout, name = 'This game' }: { input?: TerminalInput; output?: TerminalOutput; name?: string } = {}) {
+    // `colors` is how many the terminal shows (by default, what this
+    // process's environment says: see colorDepth).
+    public constructor({ input = process.stdin, output = process.stdout, name = 'This game', colors = colorDepth(process.env) }: { input?: TerminalInput; output?: TerminalOutput; name?: string; colors?: ColorDepth } = {}) {
+        this.screen = new Screen(colors);
         this.input = input;
         this.output = output;
         this.name = name;

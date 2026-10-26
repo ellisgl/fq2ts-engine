@@ -2,7 +2,9 @@
 // sending only the cells that changed since the last flush.
 //
 // Coordinates are 1-based (x = column 1-80, y = row 1-25) to match the game
-// data. Colours are the 16 CGA colours; backgrounds use the first 8.
+// data. Colours are numbers from 0 to 255: the 16 CGA colours, then xterm's
+// 256-colour palette. Each screen draws them as well as its terminal can
+// (see ColorDepth).
 
 import { at } from './assert.ts';
 import { REPLACEMENT, cells, fitsCell } from './chars.ts';
@@ -17,8 +19,11 @@ export const COLORS = [
 
 export type ColorName = (typeof COLORS)[number];
 
-// A CGA colour number, 0-15.
+// A colour, 0-255. 0-15 are the 16 CGA colours (in CGA's order: COLORS);
+// 16-255 are xterm's: a 6x6x6 cube of red, green and blue (16 + 36r + 6g
+// + b, each 0-5), then 24 greys from dark to light (232-255).
 export type Color = number;
+export const COLOR_COUNT = 256;
 
 export interface Cell {
     ch:    string;
@@ -40,37 +45,113 @@ export const RGB: readonly Rgb[] = [
     [85, 85, 85], [85, 85, 255], [85, 255, 85], [85, 255, 255], [255, 85, 85], [255, 85, 255], [255, 255, 85], [255, 255, 255],
 ];
 
+// The red, green and blue of a colour.
+export function rgb(c: Color): Rgb {
+    if (c < 16) {
+        return at(RGB, c);
+    }
+
+    if (c < 232) {
+        const level = (n: number): number => (n === 0 ? 0 : 55 + 40 * n);
+        const i = c - 16;
+        return [level(Math.floor(i / 36)), level(Math.floor(i / 6) % 6), level(i % 6)];
+    }
+
+    const grey = 8 + 10 * (c - 232);
+    return [grey, grey, grey];
+}
+
+// The colour among `choices` that looks most like `c`.
+function nearest(c: Color, choices: readonly Color[]): Color {
+    const [r, g, b] = rgb(c);
+    let best = at(choices, 0);
+    let bestDistance = Infinity;
+    for (const choice of choices) {
+        const [r2, g2, b2] = rgb(choice);
+        const distance = (r - r2) ** 2 + (g - g2) ** 2 + (b - b2) ** 2;
+        if (distance < bestDistance) {
+            best = choice;
+            bestDistance = distance;
+        }
+    }
+
+    return best;
+}
+
+const range = (from: number, to: number): Color[] => Array.from({ length: to - from }, (_, i) => from + i);
+
+// Each colour as one of the 16, for terminals with no more.
+const AS_16 = range(0, COLOR_COUNT).map((c) => (c < 16 ? c : nearest(c, range(0, 16))));
+// Each colour as one of xterm's 16-255, for 256-colour terminals. Those
+// look the same everywhere, while a terminal's first 16 are its own (its
+// "brown" is often yellow), so the CGA colours are drawn with them too.
+const AS_256 = range(0, COLOR_COUNT).map((c) => (c < 16 ? nearest(c, range(16, COLOR_COUNT)) : c));
+
+// How many colours a terminal can show: any (24-bit "true colour"), xterm's
+// 256, or the 16. Colours it can't show are drawn as the nearest it can.
+export type ColorDepth = 'true' | '256' | '16';
+
+// A terminal's colour depth, from its environment: FQ2_COLORS (16, 256 or
+// true) if it's set; then COLORTERM, which true-colour terminals set to
+// truecolor or 24bit; then TERM, which names 256color if it can do those.
+// With no TERM at all (Windows Terminal), true colour.
+export function colorDepth(env: Readonly<Record<string, string | undefined>>): ColorDepth {
+    const asked = env['FQ2_COLORS'];
+    if (asked === '16' || asked === '256' || asked === 'true') {
+        return asked;
+    }
+
+    const colorterm = env['COLORTERM'] ?? '';
+    if (colorterm === 'truecolor' || colorterm === '24bit') {
+        return 'true';
+    }
+
+    const term = env['TERM'];
+    if (term === undefined || term === '') {
+        return 'true';
+    }
+
+    return term.includes('256color') ? '256' : '16';
+}
+
 // CGA colour order is BGR, ANSI is RGB.
 const ANSI = [0, 4, 2, 6, 1, 5, 3, 7];
-const trueColor = process.env['FQ2_COLORS'] !== '16';
 
-// A cell's colours as one number: fg in bits 0-3, bg in 4-7, blink in 8.
-const packAttr = (fg: Color, bg: Color, blink: number): number => fg | (bg << 4) | (blink << 8);
+// A cell's colours as one number: fg in bits 0-7, bg in 8-15, blink in 16.
+const packAttr = (fg: Color, bg: Color, blink: number): number => fg | (bg << 8) | (blink << 16);
 
-// The escape sequence for each packed attribute, made once.
-const styles = new Map<number, string>();
-function styleOf(attr: number): string {
-    let style = styles.get(attr);
+// The escape sequence for each packed attribute, made once for each depth.
+const styles: Readonly<Record<ColorDepth, Map<number, string>>> = { true: new Map(), 256: new Map(), 16: new Map() };
+function styleOf(attr: number, depth: ColorDepth): string {
+    let style = styles[depth].get(attr);
     if (style === undefined) {
-        style = sgr(attr & 15, (attr >> 4) & 15, attr >> 8);
-        styles.set(attr, style);
+        style = sgr(attr & 255, (attr >> 8) & 255, attr >> 16, depth);
+        styles[depth].set(attr, style);
     }
 
     return style;
 }
 
-function sgr(fg: Color, bg: Color, blink: number): string {
+function sgr(fg: Color, bg: Color, blink: number, depth: ColorDepth): string {
     const b = blink ? ';5' : '';
-    if (trueColor) {
-        const [fr, fg2, fb] = at(RGB, fg);
-        const [br, bg2, bb] = at(RGB, bg);
+    if (depth === 'true') {
+        const [fr, fg2, fb] = rgb(fg);
+        const [br, bg2, bb] = rgb(bg);
 
         return `\x1b[0${b};38;2;${fr};${fg2};${fb};48;2;${br};${bg2};${bb}m`;
     }
 
-    const f = fg < 8 ? 30 + at(ANSI, fg) : 90 + at(ANSI, fg - 8);
+    if (depth === '256') {
+        return `\x1b[0${b};38;5;${at(AS_256, fg)};48;5;${at(AS_256, bg)}m`;
+    }
 
-    return `\x1b[0${b};${f};${40 + at(ANSI, bg)}m`;
+    // The bright eight are 90-97 and 100-107.
+    const ansi = (c: Color, base: number): number => {
+        const c16 = at(AS_16, c);
+        return c16 < 8 ? base + at(ANSI, c16) : base + 60 + at(ANSI, c16 - 8);
+    };
+
+    return `\x1b[0${b};${ansi(fg, 30)};${ansi(bg, 40)}m`;
 }
 
 export class Screen {
@@ -81,20 +162,24 @@ export class Screen {
     // What the terminal shows now: each cell's character and packed
     // attribute (null and -1 when unknown).
     private readonly shownCh: (string | null)[];
-    private readonly shownAttr: Int16Array;
+    private readonly shownAttr: Int32Array;
     // Whether anything may differ from what the terminal shows.
     private dirty = true;
 
     public cursor: Point | null = null; // when the terminal cursor should be visible
 
-    public constructor() {
+    // How many colours the terminal can show.
+    public readonly depth: ColorDepth;
+
+    public constructor(depth: ColorDepth = 'true') {
+        this.depth = depth;
         const size = WIDTH * HEIGHT;
         this.chars = new Array<string>(size).fill(' ');
         this.fg    = new Uint8Array(size).fill(7);
         this.bg    = new Uint8Array(size).fill(0);
         this.blink = new Uint8Array(size);
         this.shownCh = new Array<string | null>(size).fill(null);
-        this.shownAttr = new Int16Array(size).fill(-1);
+        this.shownAttr = new Int32Array(size).fill(-1);
     }
 
     public inside(x: number, y: number): boolean {
@@ -163,7 +248,7 @@ export class Screen {
     }
 
     private style(i: number): string {
-        return styleOf(this.attr(i));
+        return styleOf(this.attr(i), this.depth);
     }
 
     // The escape sequence that brings the terminal up to date.
@@ -184,7 +269,7 @@ export class Screen {
                 out += `\x1b[${Math.floor(i / WIDTH) + 1};${(i % WIDTH) + 1}H`;
             }
 
-            const style = styleOf(attr);
+            const style = styleOf(attr, this.depth);
             if (style !== last) {
                 out += last = style;
             }
