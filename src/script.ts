@@ -12,7 +12,7 @@ import { draw } from './text.ts';
 import { at } from './assert.ts';
 import { STATUS_ROW, askText, choose, scrollText, statusBar, textInput } from './ui.ts';
 import { cellCount } from './chars.ts';
-import { fight, type FightResult, type Monster } from './combat.ts';
+import { fight, type FightOptions, type FightResult, type Monster } from './combat.ts';
 import { HEIGHT, type Screen } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
 import { equipped, type FlagRecord, type Player, type Sex, type Slot } from './player.ts';
@@ -359,8 +359,14 @@ export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRe
 
     // Fights a monster with the player's gear, which may break. The
     // monster's after-fight hook, if any, runs before this returns.
-    public async fight(monster: Monster): Promise<FightResult> {
-        const result = await fight(this.term, this.player, gearOf(this.player, this.game.items), monster, { superhumanFactor: this.game.config.superhumanFactor });
+    // `defeat` and `victory` change what losing does and winning says (see
+    // FightOptions), for fights that aren't against monsters.
+    public async fight(monster: Monster, { defeat, victory }: Pick<FightOptions, 'defeat' | 'victory'> = {}): Promise<FightResult> {
+        const result = await fight(this.term, this.player, gearOf(this.player, this.game.items), monster, {
+            superhumanFactor: this.game.config.superhumanFactor,
+            ...(defeat ? { defeat } : {}),
+            ...(victory === undefined ? {} : { victory }),
+        });
         for (const message of wear(this.player, this.game.items)) {
             this.write(message);
         }

@@ -6,7 +6,7 @@ import { writeFileAtomic } from './files.ts';
 import { join } from 'node:path';
 import { at, cellAt } from './assert.ts';
 import { fitsCell, graphemes } from './chars.ts';
-import { record, string, integer, array, oneOf, field, InvalidData, type Reader } from './validate.ts';
+import { record, string, integer, boolean, array, oneOf, field, InvalidData, type Reader } from './validate.ts';
 import type { Color } from './screen.ts';
 
 export const MAP_WIDTH = 79;
@@ -95,6 +95,8 @@ export interface GameMap {
     kind: MapKind;
     // The encounter table for random fights here, if not "default".
     encounters?: string;
+    // No fights between players here (on a server). Interiors always are.
+    safe?: boolean;
     tiles: string[][];
     fg: Color[][];
     bg: Color[][];
@@ -153,6 +155,7 @@ export function readMap(value: unknown, path: string): GameMap {
         name: field(r, 'name', path, string, ''),
         kind: mapKind,
         ...(r['encounters'] === undefined ? {} : { encounters: field(r, 'encounters', path, string) }),
+        ...(field(r, 'safe', path, boolean, false) ? { safe: true } : {}),
         tiles,
         fg,
         bg,
@@ -172,6 +175,7 @@ export function writeMap(map: GameMap): string {
         ...(map.name ? { name: map.name } : {}),
         kind: map.kind,
         ...(map.encounters === undefined ? {} : { encounters: map.encounters }),
+        ...(map.safe ? { safe: true } : {}),
         tiles: rows(map.tiles, (ch) => ch),
         fg: rows(map.fg, (c) => HEX.charAt(c)),
         bg: rows(map.bg, (c) => HEX.charAt(c)),
@@ -294,6 +298,22 @@ export class World {
     }
 
     // The encounter table named for a screen (undefined means "default").
+    // Whether players can't fight each other here: interiors, and screens
+    // marked safe.
+    public isSafe(screen: number): boolean {
+        const map = this.maps.get(screen);
+        return map !== undefined && (map.kind === 2 || map.safe === true);
+    }
+
+    public setSafe(screen: number, safe: boolean): void {
+        const map = this.map(screen);
+        if (safe) {
+            map.safe = true;
+        } else {
+            delete map.safe;
+        }
+    }
+
     public encounters(screen: number): string | undefined {
         return this.maps.get(screen)?.encounters;
     }

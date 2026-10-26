@@ -69,6 +69,9 @@ export interface Content<F extends FlagRecord, W extends WorldRecord = WorldReco
     newGame: Script<F, W>;
     // The player at the start of a new game.
     start: Player<F>;
+    // Flags that go back to their start values each new day: on a server,
+    // at midnight (FQ2's one drink a day). Single-player has no days.
+    daily?: readonly (keyof F & string)[];
     // What belongs to the world rather than any player, with its starting
     // values (scripts use it as g.world). In single-player it's saved with
     // the game; on a server, everyone playing shares it. {} for none.

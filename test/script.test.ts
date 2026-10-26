@@ -194,6 +194,28 @@ describe('ScriptContext: rules', () => {
         expect(term.remaining).toBe(0);
     });
 
+    test('a fight can say what losing does and winning says', async () => {
+        random = spyOn(Math, 'random').mockReturnValue(0.99);
+        // (Attack, the brute's blow, and the defeat.)
+        const lost = scriptContext({ player: newPlayer({ gold: 40 }), steps: ['enter', 'enter', 'x'] });
+        const result = await lost.g.fight(monster({ name: 'Brute', hp: 999, attack: 999 }), {
+            defeat: (p) => {
+                p.gold = 7;
+                p.hp = 1;
+                return 'BEATEN';
+            },
+        });
+        expect(result).toBe('lost');
+        expect([lost.g.gold, lost.g.hp]).toEqual([7, 1]);
+        expect(row(lost.term.screen, 23)).toContain('BEATEN');
+
+        const won = scriptContext({ steps: ['enter', 'x', () => {
+            expect(row(won.term.screen, 24)).toContain('WELL DONE');
+            return 'x';
+        }] });
+        expect(await won.g.fight(monster({ name: 'Gnat', hp: 1, attack: 0 }), { victory: 'WELL DONE' })).toBe('won');
+    });
+
     test('fight uses the configured superhuman factor', async () => {
         random = spyOn(Math, 'random').mockReturnValue(0.99);
         const { g } = scriptContext({ player: newPlayer({ superhuman: true }), steps: ['enter', 'x', 'x'] });

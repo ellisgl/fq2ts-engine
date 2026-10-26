@@ -273,12 +273,30 @@ export function monsterDamage(attack: Attack, player: Fighter, gear: Gear, super
     return damage;
 }
 
+export interface FightOptions {
+    superhumanFactor?: number;
+    // What losing does to the player, and what it says. By default (a
+    // monster's way): no gold, a tenth less experience, 10 hitpoints.
+    defeat?(player: Fighter): string;
+    // What winning says (the monster's gold and experience are the player's
+    // either way). By default: "You killed the ...! You find ...".
+    victory?: string;
+}
+
+// A monster's way of beating the player.
+function monsterDefeat(player: Fighter): string {
+    player.exp -= Math.trunc(player.exp / 10);
+    player.gold = 0;
+    player.hp = Math.min(10, player.maxHp);
+    return 'You are defeated... Your Gold and Experience have been lowered unfortunately..';
+}
+
 export async function fight(
     term: Terminal,
     player: Fighter,
     gear: Gear,
     monster: Monster,
-    { superhumanFactor = 3 }: { superhumanFactor?: number } = {},
+    { superhumanFactor = 3, defeat = monsterDefeat, victory }: FightOptions = {},
 ): Promise<FightResult> {
     const { screen } = term;
     const maxHp = monster.hp;
@@ -323,10 +341,7 @@ export async function fight(
 
     const lose = async (): Promise<FightResult> => {
         status();
-        line(23, 'You are defeated... Your Gold and Experience have been lowered unfortunately..', 14, 1);
-        player.exp -= Math.trunc(player.exp / 10);
-        player.gold = 0;
-        player.hp = Math.min(10, player.maxHp);
+        line(23, defeat(player), 14, 1);
         await anyKey();
         clear(24);
         clear(25);
@@ -389,7 +404,7 @@ export async function fight(
             }
 
             const them = { he: 'him', she: 'her', it: 'it' }[monster.pronoun];
-            line(24, `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}on ${them} and get {white}${monster.exp}{green} Experience..`, 15);
+            line(24, victory ?? `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}on ${them} and get {white}${monster.exp}{green} Experience..`, 15);
             clear(25);
             await anyKey();
             clear(24);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { KINDS, MAP_HEIGHT, MAP_KINDS, MAP_WIDTH, TERRAINS, TERRAIN_CODES, WILD_TERRAIN, World, blankMap, gridPosition, inferTerrain, mapFileName, readMap, writeMap, type MapCell } from '../src/world.ts';
 import { makeMap, makeWorld, tempDir } from '../src/testing.ts';
@@ -114,6 +114,21 @@ test('gridPosition', () => {
     expect(gridPosition(1)).toEqual({ col: 1, row: 1 });
     expect(gridPosition(80)).toEqual({ col: 80, row: 1 });
     expect(gridPosition(82)).toEqual({ col: 2, row: 2 });
+});
+
+test('safe screens: interiors always, others when marked; the mark is kept in the file', () => {
+    const world = makeWorld(makeMap(1, 1), makeMap(2, 2), makeMap(3, 3));
+    expect([world.isSafe(1), world.isSafe(2), world.isSafe(3), world.isSafe(99)]).toEqual([false, true, false, false]);
+    world.setSafe(3, true);
+    expect(world.isSafe(3)).toBe(true);
+    const dir = tempDir();
+    world.save(dir);
+    expect(JSON.parse(readFileSync(join(dir, '0003.json'), 'utf8'))).toMatchObject({ safe: true });
+    expect(JSON.parse(readFileSync(join(dir, '0001.json'), 'utf8'))).not.toHaveProperty('safe');
+    expect(World.load(dir).isSafe(3)).toBe(true);
+    world.setSafe(3, false);
+    expect(world.isSafe(3)).toBe(false);
+    expect(() => readMap({ ...JSON.parse(writeMap(makeMap(4))), safe: 'yes' }, 'x')).toThrow('x.safe: expected true or false');
 });
 
 describe('editing', () => {
