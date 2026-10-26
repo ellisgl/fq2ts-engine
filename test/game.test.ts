@@ -1233,6 +1233,48 @@ describe("the world's state (g.world)", () => {
     });
 });
 
+describe("the content's own keys", () => {
+    const scene = (text: string) => async (g: ScriptContext<TestFlags, TestWorld>): Promise<void> => {
+        g.cls();
+        g.print(text);
+        await g.key();
+    };
+
+    test("run their script, sit beside a server's keys, and are listed by ?", async () => {
+        const content = { ...testContent, keys: { F: { help: 'fame and fortune', run: scene('FAME') } } };
+        const { game, term } = makeGameWith(content, { world, player: player(), keys: { P: { help: "who's here", run: scene('PLAYERS') } } });
+        term.feed(...RESUME, 'f', () => {
+            expect(row(term.screen, 1)).toBe('FAME');
+            return 'x';
+        }, 'p', () => {
+            expect(row(term.screen, 1)).toBe('PLAYERS');
+            return 'x';
+        }, '?', () => {
+            const text = screenText(term.screen);
+            expect(text).toContain('fame and fortune');
+            expect(text).toContain("who's here");
+            return 'escape';
+        }, ...LEAVE);
+        await run(game, term);
+    });
+
+    test.each([
+        [{ content: { I: 'x' }, server: {} }, 'The content\'s key "I" is already used by the game.'],
+        [{ content: { F: 'x' }, server: { F: 'x' } }, 'The server\'s key "F" is already used by the content.'],
+        [{ content: { f: 'x' }, server: {} }, 'The content\'s key "f" must be one character (upper case, for a letter).'],
+        [{ content: { FF: 'x' }, server: {} }, 'The content\'s key "FF" must be one character'],
+    ])('a key can only mean one thing: %p', ({ content: c, server }, message) => {
+        const key = (keys: Record<string, string>) => Object.fromEntries(Object.keys(keys).map((k) => [k, { help: k, run: () => undefined }]));
+        expect(() => makeGameWith({ ...testContent, keys: key(c) }, { world, keys: key(server) })).toThrow(message);
+    });
+
+    test('S is the game\'s in debug mode, and free otherwise', () => {
+        const keys = { S: { help: 'stats', run: () => undefined } };
+        expect(() => makeGameWith({ ...testContent, keys }, { world, debug: true })).toThrow('The content\'s key "S" is already used by the game.');
+        expect(() => makeGameWith({ ...testContent, keys }, { world })).not.toThrow();
+    });
+});
+
 describe('multiplayer groundwork', () => {
     test('autosave gets the player after a screen change, a script and leaving the map', async () => {
         const saved: { screen: number; x: number; met: boolean }[] = [];

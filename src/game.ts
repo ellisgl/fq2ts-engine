@@ -77,6 +77,10 @@ export interface Content<F extends FlagRecord, W extends WorldRecord = WorldReco
     // the game; on a server, everyone playing shares it. {} for none.
     world: W;
     screens: Readonly<Partial<Record<number, ScreenScripts<F, W>>>>;
+    // The game's own keys while exploring, by key (one character, upper
+    // case for letters), each a script: its own screens of information, say.
+    // They're listed by ?, with their help, beside any a server adds.
+    keys?: Readonly<Record<string, ExtraKey<F, W>>>;
     // Scripts that monsters' after-fight hooks (Monster.after) run, by name.
     events?: Readonly<Record<string, Script<F, W>>>;
     // Brings a loaded save up to date, given the save as it was on disk (for
@@ -127,6 +131,25 @@ export interface GameOptions<F extends FlagRecord, W extends WorldRecord = World
     // More keys while exploring (a server's P, L...), by key, each a script.
     // They're listed by ?, with their help.
     keys?: Readonly<Record<string, ExtraKey<F, W>>>;
+}
+
+// The keys the game itself uses while exploring (S only in debug mode).
+const BUILT_IN_KEYS = ['I', 'V', 'M', 'B', 'R', '?', '8', '4', '6', '2'];
+
+// The content's keys and a server's together. A key may only mean one thing:
+// one a key the game already uses, or both of them use, is an error.
+function mergeKeys<F extends FlagRecord, W extends WorldRecord>(content: Readonly<Record<string, ExtraKey<F, W>>>, server: Readonly<Record<string, ExtraKey<F, W>>>, debug: boolean): Readonly<Record<string, ExtraKey<F, W>>> {
+    const taken = new Set(debug ? [...BUILT_IN_KEYS, 'S'] : BUILT_IN_KEYS);
+    for (const [key, from] of [...Object.keys(content).map((k) => [k, 'content'] as const), ...Object.keys(server).map((k) => [k, 'server'] as const)]) {
+        if ([...key].length !== 1 || key !== key.toUpperCase()) {
+            throw new Error(`The ${from}'s key "${key}" must be one character (upper case, for a letter).`);
+        }
+        if (taken.has(key)) {
+            throw new Error(`The ${from}'s key "${key}" is already used${from === 'server' && key in content ? ' by the content' : ' by the game'}.`);
+        }
+        taken.add(key);
+    }
+    return { ...content, ...server };
 }
 
 // Something drawn on a cell of the map.
@@ -285,7 +308,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         this.worldState = worldView(content.world, worldStore ?? this.ownWorld ?? new MemoryWorld());
         this.figures = figures;
         this.moved = moved;
-        this.keys = keys;
+        this.keys = mergeKeys(content.keys ?? {}, keys, debug);
         this.fought = fought;
     }
 
