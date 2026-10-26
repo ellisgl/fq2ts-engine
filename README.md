@@ -1,4 +1,4 @@
-# @fq2js/engine
+# @fq2ts/engine
 
 The game engine Final Quest 2 runs on: an 80x25 terminal screen, maps, text
 markup, the `g` API that scripts use, combat, items and saves. A game supplies

@@ -58,7 +58,7 @@ export interface ModScreen<MF extends FlagRecord, MW extends WorldRecord = World
 
 // What a mod's mod.ts exports as its default. For type checking, write it as
 //   export default { ... } satisfies Mod<{ wishes: number }>;
-// importing the type only (import type { Mod } from '@fq2js/engine/mods'),
+// importing the type only (import type { Mod } from '@fq2ts/engine/mods'),
 // so the mod needs nothing at run time.
 export interface Mod<MF extends FlagRecord = FlagRecord, MW extends WorldRecord = WorldRecord> {
     // Lower case letters, digits and dashes; no two mods may share one.
