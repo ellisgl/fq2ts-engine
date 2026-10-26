@@ -17,11 +17,21 @@ whole game. [Final Quest 2](https://github.com/ellisgl/FQ2TS) is a bigger one.
 
 ## Using it
 
-```sh
-bun add @fq2ts/engine@github:ellisgl/fq2ts-engine#v0.1.0
+```json
+"dependencies": {
+  "@fq2ts/engine": "github:ellisgl/fq2ts-engine#f8066accf40f0a0fdecad3afe48a6cdf6f0adfc3"
+},
+"overrides": {
+  "@fq2ts/engine": "github:ellisgl/fq2ts-engine#f8066accf40f0a0fdecad3afe48a6cdf6f0adfc3"
+}
 ```
 
-It ships its TypeScript source, which Bun runs as it is.
+It ships its TypeScript source, which Bun runs as it is. Name it by its
+full commit hash (v0.1.0's above), not the tag, and give the same in
+`overrides`: `@fq2ts/server` and `@fq2ts/tools` depend on it too, and Bun
+fails to resolve a tag that a project and its dependencies both name, or
+installs two engines for two different names, so a game's content and the
+server wouldn't share one.
 
 ## Development
 
