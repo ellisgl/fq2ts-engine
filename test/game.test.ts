@@ -1022,6 +1022,82 @@ describe('presence (for a server)', () => {
         await run(game, term);
     });
 
+    test('waiting is true only while the game waits for a key on the map', async () => {
+        const { game, term } = setup({ player: player() });
+        const seen: boolean[] = [];
+        term.feed(...RESUME, () => {
+            seen.push(game.waiting);
+            return 'i';
+        }, () => {
+            // (In the inventory, a scene of its own.)
+            seen.push(game.waiting);
+            return 'x';
+        }, 'escape', 'escape');
+        await run(game, term);
+        // (A step's function runs as the key is read, before the wait ends.)
+        expect(seen).toEqual([true, false]);
+        expect(game.waiting).toBe(false);
+    });
+
+    test("figures moving redraw only their cells, keeping what the screen's show script drew", async () => {
+        let others: Figure[] = [{ x: 30, y: 2, ch: '☻', fg: 11 }];
+        // (Screen 1's show script draws MET at (30,2) once the player has met.)
+        const { game, term } = setup({ player: player({ flags: { ...START.flags, met: true } }), figures: () => others });
+        term.feed(...RESUME, () => {
+            expect(term.screen.cell(30, 2).ch).toBe('☻');
+            others = [{ x: 40, y: 15, ch: '☻', fg: 11 }];
+            game.othersChanged();
+            return 'z';
+        }, () => {
+            // The cell it left is the map's again; the new one has it.
+            expect(term.screen.cell(30, 2).ch).toBe('M');
+            expect(term.screen.cell(40, 15).ch).toBe('☻');
+            return 'escape';
+        }, 'escape');
+        await run(game, term);
+    });
+
+    test('refresh redraws the whole screen: the status line, and what the show script draws', async () => {
+        const { game, term } = setup({ player: player() });
+        term.feed(...RESUME, () => {
+            game.playing.gold = 77;
+            game.playing.flags.met = true;
+            game.refresh();
+            return 'z';
+        }, () => {
+            expect(row(term.screen, 23)).toContain('Gold 77');
+            expect(term.screen.cell(30, 2).ch).toBe('M');
+            return 'escape';
+        }, 'escape');
+        await run(game, term);
+    });
+
+    test('leaving a cell someone else is on leaves them showing', async () => {
+        const others: Figure[] = [{ x: 30, y: 15, ch: '☻', fg: 11 }];
+        const { game, term } = setup({ player: player({ x: 30, y: 15 }), figures: () => others });
+        term.feed(...RESUME, 'right', () => {
+            expect(term.screen.cell(30, 15).ch).toBe('☻');
+            return 'escape';
+        }, 'escape');
+        await run(game, term);
+    });
+
+    test('a flood of notices and messages is capped (the back-buffer keeps the last 100)', async () => {
+        const { game, term } = setup({ player: player() });
+        term.feed(...RESUME, () => {
+            for (let i = 0; i < 500; i++) {
+                game.notify(`Notice ${i}.`);
+            }
+            return 'z';
+        }, () => {
+            // The oldest went: what's shown is from the last 50.
+            expect(screenText(term.screen)).toContain('Notice 4');
+            expect(screenText(term.screen)).not.toContain('Notice 0.');
+            return 'escape';
+        }, 'escape');
+        await run(game, term);
+    });
+
     test('notify shows a message on the map, and keeps it in the back-buffer', async () => {
         const { game, term } = setup({ player: player() });
         term.feed(...RESUME, () => {

@@ -10,7 +10,7 @@ import { SLOTS, type Saves, type SlotInfo } from './saves.ts';
 import { restorePlayer, type FlagRecord, type FlagValue, type NumericField, type Player } from './player.ts';
 import { gearOf, wear, type ItemCatalogue } from './items.ts';
 import { record, string, number, field } from './validate.ts';
-import type { Color, Screen } from './screen.ts';
+import type { Cell, Color, Screen } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
 import { MemoryWorld, restoreWorld, worldView, type WorldRecord, type WorldStore } from './shared.ts';
 
@@ -144,6 +144,11 @@ export interface ExtraKey<F extends FlagRecord, W extends WorldRecord = WorldRec
 }
 
 const MESSAGE_SECONDS = 4;
+// The most notices from outside kept until the game can show them, and
+// messages waiting to be shown (the back-buffer keeps them all): a busy
+// realm can't fill memory while a player sits in a menu.
+const NOTICES_KEPT = 50;
+const MESSAGES_WAITING = 20;
 // How long a message shows when there are more waiting behind it.
 const BUSY_MESSAGE_SECONDS = 1.5;
 // How many past messages the back-buffer (B) keeps.
@@ -226,7 +231,16 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // Told from outside, for when the game is next waiting for a key: the
     // figures have moved, and notices to show.
     private figuresChanged = false;
+    private redrawWanted = false;
     private readonly notices: string[] = [];
+    // Whether the game is on the map waiting for a key (the only time it's
+    // safe for outside things to change the player).
+    private waitingForKey = false;
+    // The map as drawn before the figures and the player (after the show
+    // script), to put cells back from when figures move; and where the
+    // figures are drawn.
+    private mapCells: Cell[] = [];
+    private drawnFigures: readonly Figure[] = [];
     // Where the player was when `moved` was last told.
     private lastPlace = '';
 
@@ -284,11 +298,28 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         this.term.wake();
     }
 
+    // Something that's drawn has changed (the world's state, the player's
+    // gold): the whole screen is drawn again, once the game is waiting for a
+    // key on the map.
+    public refresh(): void {
+        this.redrawWanted = true;
+        this.term.wake();
+    }
+
     // A message from outside ("Bob enters the realm."): shown, and kept in
     // the back-buffer, once the game is waiting for a key on the map.
     public notify(text: string): void {
         this.notices.push(text);
+        if (this.notices.length > NOTICES_KEPT) {
+            this.notices.shift();
+        }
         this.term.wake();
+    }
+
+    // Whether the game is on the map, waiting for the player's next key:
+    // nothing of theirs is in use (no scene, menu or fight).
+    public get waiting(): boolean {
+        return this.waitingForKey;
     }
 
     // Whether the map is what's on screen, so things happening on it (other
@@ -547,7 +578,13 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
             }
 
             this.screen.cursor = { x: this.playing.x, y: this.playing.y };
-            const key = await this.term.key(timeout);
+            this.waitingForKey = true;
+            let key;
+            try {
+                key = await this.term.key(timeout);
+            } finally {
+                this.waitingForKey = false;
+            }
             this.screen.cursor = null;
             if (key) {
                 this.newTurn();
@@ -575,9 +612,13 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
             this.moved?.(p);
         }
 
-        if (this.figuresChanged) {
+        if (this.redrawWanted) {
+            this.redrawWanted = false;
             this.figuresChanged = false;
             await this.redraw();
+        } else if (this.figuresChanged) {
+            this.figuresChanged = false;
+            this.redrawFigures();
         }
 
         for (const text of this.notices.splice(0)) {
@@ -782,14 +823,45 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
             await show(this.script());
         }
 
-        for (const { x, y, ch, fg } of this.figures?.(this.playing.screen) ?? []) {
-            if (x >= 1 && x <= MAP_WIDTH && y >= 1 && y <= MAP_HEIGHT) {
-                this.screen.put(x, y, ch, fg, this.screen.cell(x, y).bg);
+        this.mapCells = [];
+        for (let y = 1; y <= MAP_HEIGHT; y++) {
+            for (let x = 1; x <= MAP_WIDTH; x++) {
+                this.mapCells.push(this.screen.cell(x, y));
             }
         }
-
+        this.drawnFigures = [];
+        this.drawFigures();
         this.drawPlayer();
         this.mapShown = true;
+    }
+
+    // Draws the figures on this screen (other players), and keeps where.
+    private drawFigures(): void {
+        this.drawnFigures = (this.figures?.(this.playing.screen) ?? []).filter(({ x, y }) => x >= 1 && x <= MAP_WIDTH && y >= 1 && y <= MAP_HEIGHT);
+        for (const { x, y, ch, fg } of this.drawnFigures) {
+            this.screen.put(x, y, ch, fg, this.screen.cell(x, y).bg);
+        }
+    }
+
+    // The figures have moved: only the cells they left and the ones they're
+    // on now are drawn again (not the whole map).
+    private redrawFigures(): void {
+        const left = this.drawnFigures;
+        for (const { x, y } of left) {
+            this.restoreCell(x, y);
+        }
+        this.drawFigures();
+        this.drawPlayer();
+    }
+
+    // A cell of the map as it was drawn, before the figures and the player.
+    private restoreCell(x: number, y: number): void {
+        const cell = this.mapCells[(y - 1) * MAP_WIDTH + (x - 1)];
+        if (cell) {
+            this.screen.put(x, y, cell.ch, cell.fg, cell.bg, cell.blink);
+        } else {
+            this.drawTile(x, y);
+        }
     }
 
     public drawTile(x: number, y: number): void {
@@ -811,7 +883,13 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
     public placePlayer(x: number, y: number): void {
         const p = this.playing;
-        this.drawTile(p.x, p.y);
+        // (The cell they leave, with anyone else who's on it.)
+        this.restoreCell(p.x, p.y);
+        for (const figure of this.drawnFigures) {
+            if (figure.x === p.x && figure.y === p.y) {
+                this.screen.put(figure.x, figure.y, figure.ch, figure.fg, this.screen.cell(figure.x, figure.y).bg);
+            }
+        }
         p.x = x;
         p.y = y;
         this.drawPlayer();
@@ -837,8 +915,12 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         }
 
         if (this.messageText !== null && this.messageTurn === this.turn && Date.now() < this.messageUntil) {
-            // With more to show, each gets less time.
+            // With more to show, each gets less time (and the oldest waiting
+            // go, past MESSAGES_WAITING: they're in the back-buffer).
             this.messageQueue.push(text);
+            if (this.messageQueue.length > MESSAGES_WAITING) {
+                this.messageQueue.shift();
+            }
             this.messageUntil = Math.min(this.messageUntil, this.messageShownAt + BUSY_MESSAGE_SECONDS * 1000);
             return;
         }
