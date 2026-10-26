@@ -216,6 +216,17 @@ describe('ScriptContext: rules', () => {
         expect(await won.g.fight(monster({ name: 'Gnat', hp: 1, attack: 0 }), { victory: 'WELL DONE' })).toBe('won');
     });
 
+    test("left hears the monster's hitpoints when a fight ends, however it ends", async () => {
+        random = spyOn(Math, 'random').mockReturnValue(0.99);
+        const heard: number[] = [];
+        const hurt = scriptContext({ steps: ['enter', 'enter', 'x'] });
+        await hurt.g.fight(monster({ name: 'Brute', hp: 999, attack: 999 }), { left: (hp) => heard.push(hp) });
+        const slain = scriptContext({ steps: ['enter', 'x', 'x'] });
+        await slain.g.fight(monster({ name: 'Gnat', hp: 1, attack: 0 }), { left: (hp) => heard.push(hp) });
+        // (A high roll's blow, 38, off the Brute's 999; the Gnat is dead.)
+        expect(heard).toEqual([961, 0]);
+    });
+
     test('fight uses the configured superhuman factor', async () => {
         random = spyOn(Math, 'random').mockReturnValue(0.99);
         const { g } = scriptContext({ player: newPlayer({ superhuman: true }), steps: ['enter', 'x', 'x'] });

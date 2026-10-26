@@ -281,6 +281,10 @@ export interface FightOptions {
     // What winning says (the monster's gold and experience are the player's
     // either way). By default: "You killed the ...! You find ...".
     victory?: string;
+    // Told the monster's hitpoints when the fight ends, however it ends
+    // (0 if it's dead): for a monster whose hitpoints are kept elsewhere,
+    // like one everyone in the realm fights.
+    left?(hp: number): void;
 }
 
 // A monster's way of beating the player.
@@ -296,7 +300,7 @@ export async function fight(
     player: Fighter,
     gear: Gear,
     monster: Monster,
-    { superhumanFactor = 3, defeat = monsterDefeat, victory }: FightOptions = {},
+    { superhumanFactor = 3, defeat = monsterDefeat, victory, left }: FightOptions = {},
 ): Promise<FightResult> {
     const { screen } = term;
     const maxHp = monster.hp;
@@ -349,75 +353,79 @@ export async function fight(
         return 'lost';
     };
 
-    line(24, monster.says, 15);
+    const result = await (async (): Promise<FightResult> => {
+        line(24, monster.says, 15);
 
-    if (coin() && !(await monsterTurn())) {
-        return lose();
-    }
+        if (coin() && !(await monsterTurn())) {
+            return lose();
+        }
 
-    for (;;) {
-        status();
-        let option = 0;
-        let key;
+        for (;;) {
+            status();
+            let option = 0;
+            let key;
 
-        do {
+            do {
+                clear(25);
+                draw(screen, option === 0 ? '{on blue}Attack{on black}  Run for it' : 'Attack  {on blue}Run for it', { y: 25, fg: 15, bg: 0 });
+                key = await term.key();
+                if (key === 'left' || key === 'right') {
+                    option = 1 - option;
+                }
+            } while (key !== 'enter');
+
+            clear(24);
             clear(25);
-            draw(screen, option === 0 ? '{on blue}Attack{on black}  Run for it' : 'Attack  {on blue}Run for it', { y: 25, fg: 15, bg: 0 });
-            key = await term.key();
-            if (key === 'left' || key === 'right') {
-                option = 1 - option;
+
+            if (option === 1) {
+                // One time in ten the monster catches you as you run.
+                if (roll(10) !== 5) {
+                    return 'fled';
+                }
+
+                line(24, `As you attempt to leave, ${monster.name} sees you and attacks!`, 15);
+                if (!(await monsterTurn())) {
+                    return lose();
+                }
+
+                continue;
             }
-        } while (key !== 'enter');
 
-        clear(24);
-        clear(25);
+            const blow = playerDamage(player, gear, superhumanFactor);
+            const damage = Math.max(0, blow.damage - monster.defense);
+            const { powerHit } = blow;
+            hp -= damage;
+            const verb = powerHit ? 'POWER HIT' : 'hit';
+            line(24, `You ${verb} ${monster.name} for ${damage} points damage.${hp < 1 ? '  Press any key...' : ''}`, 7);
+            if (hp < 1) {
+                status(true);
+                player.gold += monster.gold;
+                player.exp += monster.exp;
+                await anyKey();
 
-        if (option === 1) {
-            // One time in ten the monster catches you as you run.
-            if (roll(10) !== 5) {
-                return 'fled';
+                if (powerHit && monster.kill) {
+                    line(24, `{lightcyan}${monster.kill}`, 15);
+                    await anyKey();
+                }
+
+                const them = { he: 'him', she: 'her', it: 'it' }[monster.pronoun];
+                line(24, victory ?? `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}on ${them} and get {white}${monster.exp}{green} Experience..`, 15);
+                clear(25);
+                await anyKey();
+                clear(24);
+
+                return 'won';
             }
 
-            line(24, `As you attempt to leave, ${monster.name} sees you and attacks!`, 15);
+            status();
+
             if (!(await monsterTurn())) {
                 return lose();
             }
-
-            continue;
         }
-
-        const blow = playerDamage(player, gear, superhumanFactor);
-        const damage = Math.max(0, blow.damage - monster.defense);
-        const { powerHit } = blow;
-        hp -= damage;
-        const verb = powerHit ? 'POWER HIT' : 'hit';
-        line(24, `You ${verb} ${monster.name} for ${damage} points damage.${hp < 1 ? '  Press any key...' : ''}`, 7);
-        if (hp < 1) {
-            status(true);
-            player.gold += monster.gold;
-            player.exp += monster.exp;
-            await anyKey();
-
-            if (powerHit && monster.kill) {
-                line(24, `{lightcyan}${monster.kill}`, 15);
-                await anyKey();
-            }
-
-            const them = { he: 'him', she: 'her', it: 'it' }[monster.pronoun];
-            line(24, victory ?? `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}on ${them} and get {white}${monster.exp}{green} Experience..`, 15);
-            clear(25);
-            await anyKey();
-            clear(24);
-
-            return 'won';
-        }
-
-        status();
-
-        if (!(await monsterTurn())) {
-            return lose();
-        }
-    }
+    })();
+    left?.(Math.max(0, hp));
+    return result;
 }
 
 // Picks a random encounter.

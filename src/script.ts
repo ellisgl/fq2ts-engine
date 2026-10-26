@@ -359,13 +359,14 @@ export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRe
 
     // Fights a monster with the player's gear, which may break. The
     // monster's after-fight hook, if any, runs before this returns.
-    // `defeat` and `victory` change what losing does and winning says (see
-    // FightOptions), for fights that aren't against monsters.
-    public async fight(monster: Monster, { defeat, victory }: Pick<FightOptions, 'defeat' | 'victory'> = {}): Promise<FightResult> {
+    // `defeat` and `victory` change what losing does and winning says, and
+    // `left` hears the monster's hitpoints at the end (see FightOptions).
+    public async fight(monster: Monster, { defeat, victory, left }: Pick<FightOptions, 'defeat' | 'victory' | 'left'> = {}): Promise<FightResult> {
         const result = await fight(this.term, this.player, gearOf(this.player, this.game.items), monster, {
             superhumanFactor: this.game.config.superhumanFactor,
             ...(defeat ? { defeat } : {}),
             ...(victory === undefined ? {} : { victory }),
+            ...(left ? { left } : {}),
         });
         for (const message of wear(this.player, this.game.items)) {
             this.write(message);
