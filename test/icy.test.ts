@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { crc32 } from 'node:zlib';
-import { flatten, layerBox, readIcy, tagMarkup, writeIcy, type Icy, type IcyCell, type IcyLayer, type IcyTag } from '../src/icy.ts';
+import { flatten, layerBox, pictureMarkup, readIcy, tagMarkup, writeIcy, type Icy, type IcyCell, type IcyLayer, type IcyTag } from '../src/icy.ts';
 import { Screen } from '../src/screen.ts';
 import { draw } from '../src/text.ts';
-import { pictureMarkup } from '../src/xbin.ts';
+import { at } from '../src/assert.ts';
 
 const cell = (ch: string, fg: number | null = 7, bg: number | null = 0, blink = false): IcyCell => ({ ch, fg, bg, blink });
 
@@ -85,6 +85,14 @@ describe('readIcy', () => {
         const cells: [number, number[]][] = [[219, plain(7, 0)], [0x263a, plain(7, 0)]];
         expect(readIcy(file(header(), layerRecord('L', 2, cells))).layers[0]?.cells.map((c) => c?.ch)).toEqual(['█', '☺']);
         expect(readIcy(file(header({ buffer: 0 }), layerRecord('L', 2, cells))).layers[0]?.cells.map((c) => c?.ch)).toEqual(['Û', '☺']);
+    });
+
+    test('every CP437 byte is its own character, and written back the same', () => {
+        const cells = Array.from({ length: 256 }, (_, i): [number, number[]] => [i, plain(7, 0)]);
+        const chars = readIcy(file(header({ width: 256 }), layerRecord('L', 256, cells))).layers[0]?.cells.map((c) => c?.ch) ?? [];
+        expect(new Set(chars).size).toBe(254); // 0, 32 and 255 are all spaces
+        const again = icy(256, 1, [layer('L', [chars.map((ch) => cell(ch ?? ''))])]);
+        expect(readIcy(writeIcy(again)).layers[0]?.cells.map((c) => c?.ch)).toEqual(chars);
     });
 
     test('xterm and RGB colours, and empty cells', () => {
@@ -209,6 +217,34 @@ describe('flatten', () => {
             { ch: 'x', fg: 14, bg: 3, blink: false },
             { ch: 'y', fg: 14, bg: 1, blink: false },
         ]);
+    });
+});
+
+describe('pictureMarkup', () => {
+    test('draws the picture cell for cell', () => {
+        const cells = Array.from({ length: 82 * 26 }, (_, n) => ({
+            ch: n % 7 ? '{' : 'x',
+            fg: n % 16,
+            bg: (n >> 2) % 8,
+            blink: n % 5 === 0,
+        }));
+        const screen = new Screen();
+        const lines = pictureMarkup({ width: 82, height: 26, cells });
+        expect(lines).toHaveLength(25);
+        for (const line of lines) {
+            draw(screen, line);
+        }
+        for (let y = 1; y <= 25; y++) {
+            for (let x = 1; x <= 80; x++) {
+                expect(screen.cell(x, y)).toEqual(at(cells, (y - 1) * 82 + x - 1));
+            }
+        }
+    });
+
+    test('only changes colour when it needs to', () => {
+        const paint = { fg: 14, bg: 1, blink: false };
+        expect(pictureMarkup({ width: 3, height: 1, cells: [{ ...paint, ch: 'a' }, { ...paint, ch: 'b' }, { ...paint, ch: 'c', fg: 200 }] }))
+            .toEqual(['{y 1}{x 1}{yellow}{on blue}ab{color 200}c']);
     });
 });
 

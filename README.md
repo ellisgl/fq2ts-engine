@@ -5,6 +5,11 @@ markup, the `g` API that scripts use, combat, items and saves. A game supplies
 its content (scripts for each screen, the starting player, the title screen)
 and its data (maps, items, monsters).
 
+Screens can be drawn in [Icy Draw](https://github.com/mkrueger/icy_tools/blob/master/crates/icy_draw/README.md):
+[icy.ts](src/icy.ts) reads its `.icy` files and turns them into the engine's
+text markup: the layers drawn together, and the tags filled in with the
+game's text.
+
 [testing.ts](src/testing.ts) is a kit for testing games: a terminal that plays
 back scripted key presses, and small maps, worlds and monsters.
 [fixture.ts](src/fixture.ts) is Test Quest, a tiny game (four screens, a few

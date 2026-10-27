@@ -14,9 +14,75 @@
 
 import { deflateSync, crc32 } from 'node:zlib';
 import { cellCount, cells as splitCells } from './chars.ts';
-import { rgb, COLOR_COUNT, type Color } from './screen.ts';
+import { rgb, COLORS, COLOR_COUNT, HEIGHT, WIDTH, type Color } from './screen.ts';
 import { escapeMarkup } from './text.ts';
-import { CP437, CP437_BYTE, type Paint, type Painting } from './xbin.ts';
+
+// Each CP437 byte as Unicode. 0 and 255 show as spaces.
+const CP437: readonly string[] = [
+    ' ☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼',
+    ...Array.from({ length: 0x5f }, (_, i) => String.fromCharCode(0x20 + i)),
+    '⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ',
+].flatMap((s) => [...s]);
+
+// Each character's CP437 byte.
+const CP437_BYTE: ReadonlyMap<string, number> = new Map([...CP437.map((ch, i) => [ch, i] as const), [' ', 0x20]]);
+
+// A cell to draw; with no background it keeps the one on screen.
+export interface Paint {
+    ch:    string;
+    fg:    Color;
+    bg:    Color | null;
+    blink: boolean;
+}
+
+// A picture to draw over what's on screen: cells left empty (null) keep
+// what's there.
+export interface Painting {
+    width:  number;
+    height: number;
+    cells:  readonly (Paint | null)[]; // row by row
+}
+
+// The picture as markup, to draw from the top left corner: a line per row,
+// or more where a row has cells left empty (null) or with no background.
+// Only what fits on the screen is kept.
+export function pictureMarkup({ width, cells }: Painting): string[] {
+    const name = (c: number): string => COLORS[c] ?? String(c);
+    const lines: string[] = [];
+    for (let y = 0; y < Math.min(HEIGHT, cells.length / width); y++) {
+        let line = '';
+        let last: Paint | null = null;
+        const end = (): void => {
+            if (line) {
+                lines.push(line);
+            }
+            line = '';
+            last = null;
+        };
+        cells.slice(y * width, y * width + Math.min(width, WIDTH)).forEach((c, x) => {
+            // (Once a line has a background it can't go back to none.)
+            if (!c || (c.bg === null && last?.bg != null)) {
+                end();
+            }
+            if (!c) {
+                return;
+            }
+            if (!line) {
+                line = `{y ${y + 1}}{x ${x + 1}}`;
+            }
+            if (c.fg !== last?.fg || c.blink !== last.blink) {
+                line += c.blink ? `{blink ${name(c.fg)}}` : c.fg < 16 ? `{${name(c.fg)}}` : `{color ${c.fg}}`;
+            }
+            if (c.bg !== null && c.bg !== last?.bg) {
+                line += `{on ${name(c.bg)}}`;
+            }
+            line += escapeMarkup(c.ch);
+            last = c;
+        });
+        end();
+    }
+    return lines;
+}
 
 // A layer's cell; colours are null where transparent.
 export interface IcyCell {
