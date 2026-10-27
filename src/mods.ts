@@ -367,7 +367,8 @@ export function applyMods<F extends FlagRecord, W extends WorldRecord = WorldRec
             }
 
             const show = modScreen.show ? chain(before.show, run(modScreen.show)) : before.show;
-            screens[screen] = { ...(show ? { show } : {}), at };
+            // (Keeping its `triggers`, which go on its map's tiles later.)
+            screens[screen] = { ...before, ...(show ? { show } : {}), at };
         }
 
         if (mod.newGame) {

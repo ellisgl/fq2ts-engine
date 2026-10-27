@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readConfig, type Content, type Figure, type GameOptions } from '../src/game.ts';
-import type { ScriptContext } from '../src/script.ts';
+import { placeTriggers, readConfig, type Content, type Figure, type GameOptions } from '../src/game.ts';
+import type { Script, ScriptContext } from '../src/script.ts';
+import { MAP_HEIGHT, MAP_WIDTH, type World } from '../src/world.ts';
 import { MemoryWorld } from '../src/shared.ts';
 import type { Player } from '../src/player.ts';
 import { Bestiary, type Monster } from '../src/combat.ts';
@@ -253,6 +254,52 @@ describe('triggers', () => {
         const { game, term } = makeGameWith(broken, { world, monsters: onlyMonster(monster()), player: player(), steps: [...RESUME, 'right'] });
         expect(await caught(game.run())).toEqual(new Error('Screen 99 does not exist.'));
         expect(term.remaining).toBe(0);
+    });
+});
+
+describe('trigger characters', () => {
+    // A world whose screen 1 has these characters on its map, at "x,y".
+    function marked(marks: Record<string, string>): World {
+        const w = testWorld();
+        const map = w.export(1);
+        map.triggers = Array.from({ length: MAP_HEIGHT }, (_, y) => Array.from({ length: MAP_WIDTH }, (_, x) => marks[`${x + 1},${y + 1}`] ?? null));
+        w.put(map);
+        return w;
+    }
+    const screens = (triggers: Record<string, Script<TestFlags, TestWorld>>): Content<TestFlags, TestWorld>['screens'] => ({
+        ...testContent.screens,
+        1: { ...testContent.screens[1], triggers },
+    });
+    const hello: Script<TestFlags, TestWorld> = (g) => {
+        g.write('Hello from a letter.');
+    };
+
+    test('put each trigger on every tile its map marks with it, with the screen\'s own', () => {
+        const placed = placeTriggers(screens({ H: hello }), marked({ '13,10': 'H', '14,10': 'H' }));
+        expect(placed[1]?.at?.['13,10']).toBe(hello);
+        expect(placed[1]?.at?.['14,10']).toBe(hello);
+        expect(placed[1]?.at?.['12,10']).toBe(testContent.screens[1]?.at?.['12,10']);
+        expect(placed[2]).toBe(testContent.screens[2]);
+    });
+
+    test('stepping on one runs its trigger', async () => {
+        const { game, term } = makeGameWith({ ...testContent, screens: screens({ H: hello }) }, { world: marked({ '13,10': 'H' }), monsters: onlyMonster(monster()), player: player({ x: 12, y: 10 }) });
+        term.feed(...RESUME, 'right', () => {
+            expect(row(term.screen, 23)).toContain('Hello from a letter.');
+            return 'escape';
+        }, 'escape');
+        await run(game, term);
+    });
+
+    test.each([
+        ['a character with no trigger', screens({}), { '13,10': 'H' }, 'Screen 1\'s map has "H" at 13,10, but the screen has no trigger "H".'],
+        ['a trigger on no tile', screens({ H: hello, Q: hello }), { '13,10': 'H' }, 'Screen 1 has a trigger "Q", but its map doesn\'t put it on any tile.'],
+        ['two on one tile', screens({ H: hello }), { '12,10': 'H' }, 'Screen 1 has two triggers at 12,10: "H" on its map, and one in its `at`.'],
+        ['a name that is not one character', screens({ HI: hello }), {}, 'Screen 1 has a trigger "HI": triggers are one character you can type, other than ".".'],
+        ['a screen that does not exist', { ...screens({}), 404: { triggers: { H: hello } } }, {}, 'Screen 404 has triggers, but there\'s no such screen.'],
+    ])('refuse %s', (_, scripts, marks, message) => {
+        expect(() => placeTriggers(scripts, marked(marks))).toThrow(message);
+        expect(() => makeGameWith({ ...testContent, screens: scripts }, { world: marked(marks) })).toThrow(message);
     });
 });
 

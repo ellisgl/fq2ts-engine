@@ -3,7 +3,7 @@
 import { draw, escapeMarkup } from './text.ts';
 import { at } from './assert.ts';
 import { statusBar, textInput, prompt, scrollText } from './ui.ts';
-import { MAP_WIDTH, MAP_HEIGHT, GRID_WIDTH, GRID_HEIGHT, WILD_TERRAIN, gridPosition, type World } from './world.ts';
+import { MAP_WIDTH, MAP_HEIGHT, GRID_WIDTH, GRID_HEIGHT, WILD_TERRAIN, gridPosition, isTriggerCode, type World } from './world.ts';
 import { fight, pickMonster, type Bestiary, type FightResult, type Monster } from './combat.ts';
 import { ScriptContext, type Destination, type Script } from './script.ts';
 import { SLOTS, type Saves, type SlotInfo } from './saves.ts';
@@ -45,6 +45,57 @@ export interface ScreenScripts<F extends FlagRecord, W extends WorldRecord = Wor
     // Runs when the player walks onto or bumps into (x, y), or arrives there
     // from another screen.
     at?: Readonly<Partial<Record<Coord, Script<F, W>>>>;
+    // The same, for every tile the screen's map marks with the character
+    // (see GameMap's `triggers`): the map says where, this says what.
+    triggers?: Readonly<Record<string, Script<F, W>>>;
+}
+
+// The screens' scripts with each one's `triggers` put on the tiles its map
+// marks, as `at`. Throws if a map marks a tile with a character that has no
+// trigger, a trigger is on no tile, or a tile would have two.
+export function placeTriggers<F extends FlagRecord, W extends WorldRecord>(screens: Content<F, W>['screens'], world: World): Content<F, W>['screens'] {
+    const placed: Partial<Record<number, ScreenScripts<F, W>>> = { ...screens };
+    for (const [key, scripts] of Object.entries(screens)) {
+        const triggers = Object.keys(scripts?.triggers ?? {});
+        const bad = triggers.find((ch) => !isTriggerCode(ch));
+        if (bad !== undefined) {
+            throw new Error(`Screen ${key} has a trigger "${bad}": triggers are one character you can type, other than ".".`);
+        }
+        if (triggers.length && !world.has(Number(key))) {
+            throw new Error(`Screen ${key} has triggers, but there's no such screen.`);
+        }
+    }
+
+    for (const screen of world.screens()) {
+        const scripts = screens[screen];
+        const at: Partial<Record<Coord, Script<F, W>>> = { ...scripts?.at };
+        const unused = new Set(Object.keys(scripts?.triggers ?? {}));
+        for (let y = 1; y <= MAP_HEIGHT; y++) {
+            for (let x = 1; x <= MAP_WIDTH; x++) {
+                const ch = world.trigger(screen, x, y);
+                if (ch === null) {
+                    continue;
+                }
+                const script = scripts?.triggers?.[ch];
+                if (!script) {
+                    throw new Error(`Screen ${screen}'s map has "${ch}" at ${x},${y}, but the screen has no trigger "${ch}".`);
+                }
+                if (at[`${x},${y}`]) {
+                    throw new Error(`Screen ${screen} has two triggers at ${x},${y}: "${ch}" on its map, and one in its \`at\`.`);
+                }
+                at[`${x},${y}`] = script;
+                unused.delete(ch);
+            }
+        }
+        const [missing] = unused;
+        if (missing !== undefined) {
+            throw new Error(`Screen ${screen} has a trigger "${missing}", but its map doesn't put it on any tile.`);
+        }
+        if (scripts?.triggers) {
+            placed[screen] = { ...scripts, at };
+        }
+    }
+    return placed;
 }
 
 // Everything that makes a particular game, as opposed to the engine.
@@ -299,7 +350,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
             }
         }
 
-        this.content = content;
+        this.content = { ...content, screens: placeTriggers(content.screens, world) };
         this.saves = saves ?? null;
         this.useScreensaver = screensaver;
         this.debug = debug;

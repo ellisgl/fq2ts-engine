@@ -89,6 +89,39 @@ describe('World', () => {
     });
 });
 
+describe('trigger characters', () => {
+    const marked = (): string[] => {
+        const rows = Array.from({ length: MAP_HEIGHT }, () => '.'.repeat(MAP_WIDTH));
+        rows[1] = '..D' + '.'.repeat(MAP_WIDTH - 4) + '!';
+        return rows;
+    };
+
+    test('a map can mark tiles with them', () => {
+        const world = loadOne({ triggers: marked() });
+        expect(world.trigger(5, 3, 2)).toBe('D');
+        expect(world.trigger(5, MAP_WIDTH, 2)).toBe('!');
+        expect(world.trigger(5, 4, 2)).toBeNull();
+        expect(loadOne().trigger(5, 3, 2)).toBeNull();
+    });
+
+    test('they write back, and a map with none writes none', () => {
+        const map = readMap(mapFile({ triggers: marked() }), 'x');
+        expect(readMap(JSON.parse(writeMap(map)), 'x')).toEqual(map);
+        expect(JSON.parse(writeMap(readMap(mapFile(), 'x')))).not.toHaveProperty('triggers');
+        const none = readMap(mapFile({ triggers: Array.from({ length: MAP_HEIGHT }, () => '.'.repeat(MAP_WIDTH)) }), 'x');
+        expect(JSON.parse(writeMap(none))).not.toHaveProperty('triggers');
+    });
+
+    test('only ones you can type', () => {
+        for (const ch of [' ', 'é', '█']) {
+            const rows = marked();
+            rows[0] = ch + '.'.repeat(MAP_WIDTH - 1);
+            expect(() => readMap(mapFile({ triggers: rows }), 'x')).toThrow(`x.triggers[0][0]: expected a keyboard character, or . for none, found "${ch}"`);
+        }
+        expect(() => readMap(mapFile({ triggers: marked().slice(1) }), 'x')).toThrow(`x.triggers: expected ${MAP_HEIGHT} rows`);
+    });
+});
+
 describe('writeMap', () => {
 
     test('what it writes reads back the same', () => {

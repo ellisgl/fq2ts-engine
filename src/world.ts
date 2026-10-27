@@ -102,6 +102,10 @@ export interface GameMap {
     bg: Color[][];
     solid: boolean[][];
     terrain: Terrain[][];
+    // Which trigger is on each tile: a keyboard character, whose script is
+    // the screen's `triggers` entry for it in the content, or null for none.
+    // Left out when the screen has none.
+    triggers?: (string | null)[][];
 }
 
 // A list of MAP_HEIGHT strings of MAP_WIDTH characters, each turned into
@@ -145,6 +149,11 @@ const colorGrid: Reader<Color[][]> = (value, path) =>
 const kind = oneOf(MAP_KINDS);
 const terrainCode = (ch: string): Terrain | undefined => TERRAINS.find((t) => TERRAIN_CODES[t] === ch);
 
+// A trigger's character: one you can type (! to ~), but not ".", which
+// means none.
+export const isTriggerCode = (ch: string): boolean => /^[!-~]$/.test(ch) && ch !== '.';
+const triggerCode = (ch: string): string | null | undefined => (ch === '.' ? null : isTriggerCode(ch) ? ch : undefined);
+
 export function readMap(value: unknown, path: string): GameMap {
     const r = record(value, path);
     const mapKind = field(r, 'kind', path, kind);
@@ -166,6 +175,10 @@ export function readMap(value: unknown, path: string): GameMap {
     if (terrain.length !== MAP_HEIGHT) {
         throw new InvalidData(`${path}.terrain: expected ${MAP_HEIGHT} rows`);
     }
+    const triggers = r['triggers'] === undefined ? undefined : field(r, 'triggers', path, grid(triggerCode, 'a keyboard character, or . for none'));
+    if (triggers && triggers.length !== MAP_HEIGHT) {
+        throw new InvalidData(`${path}.triggers: expected ${MAP_HEIGHT} rows`);
+    }
     const map: GameMap = {
         screen: field(r, 'screen', path, integer),
         name: field(r, 'name', path, string, ''),
@@ -177,6 +190,7 @@ export function readMap(value: unknown, path: string): GameMap {
         bg,
         solid,
         terrain,
+        ...(triggers ? { triggers } : {}),
     };
     return map;
 }
@@ -202,6 +216,7 @@ export function writeMap(map: GameMap): string {
         bg: colorRows(map.bg),
         solid: rows(map.solid, (s) => (s ? '#' : '.')),
         terrain: rows(map.terrain, (t) => TERRAIN_CODES[t]),
+        ...(map.triggers?.some((row) => row.some((t) => t !== null)) ? { triggers: rows(map.triggers, (t) => t ?? '.') } : {}),
     };
     return JSON.stringify(data, null, 2) + '\n';
 }
@@ -283,6 +298,12 @@ export class World {
 
     public terrain(screen: number, x: number, y: number): Terrain {
         return cellAt(this.map(screen).terrain, x, y);
+    }
+
+    // The trigger character on a tile, or null for none.
+    public trigger(screen: number, x: number, y: number): string | null {
+        const { triggers } = this.map(screen);
+        return triggers ? cellAt(triggers, x, y) : null;
     }
 
     // The screen's name ("" for none, or for a screen that doesn't exist).

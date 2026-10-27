@@ -101,6 +101,14 @@ describe('applyMods', () => {
         expect(() => applyMods(game(), [loaded({ id: 'm', screens: { 404: { at: { '1,1': () => undefined } } } })])).toThrow('The mod "m" has scripts for screen 404, which doesn\'t exist.');
     });
 
+    test("a mod's triggers on a screen keep the screen's trigger characters", () => {
+        const triggers = { H: () => undefined };
+        const base = { ...game(), content: { ...content, screens: { ...content.screens, 1: { ...content.screens[1], triggers } } } };
+        const modded = applyMods(base, [loaded({ id: 'm', screens: { 1: { at: { '20,20': () => undefined } } } })]);
+        expect(modded.content.screens[1]?.triggers).toBe(triggers);
+        expect(modded.content.screens[1]?.at?.['20,20']).toBeDefined();
+    });
+
     test("a mod's world state goes beside the game's, as <mod id>.<name>, and its scripts see it", async () => {
         const well = loaded({
             id: 'well',
