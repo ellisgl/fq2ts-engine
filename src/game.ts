@@ -57,6 +57,10 @@ export interface Content<F extends FlagRecord, W extends WorldRecord = WorldReco
             // [foreground, background]
             selectedColor: readonly [Color, Color];
             color: readonly [Color, Color];
+            // The inside of the art's menu box (columns x to x + width - 1,
+            // rows y to y + height - 1), where a server puts its own menus
+            // and questions.
+            box?: { x: number; y: number; width: number; height: number };
         };
     };
     help(config: Config): string[];
