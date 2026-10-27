@@ -7,18 +7,18 @@
 // may be run-length compressed. Anything after them (a SAUCE record) is
 // ignored.
 
-import { COLORS, HEIGHT, WIDTH, type Cell } from './screen.ts';
+import { COLORS, HEIGHT, WIDTH, type Cell, type Color } from './screen.ts';
 import { escapeMarkup } from './text.ts';
 
 // Each CP437 byte as Unicode. 0 and 255 show as spaces.
-const CP437 = [
+export const CP437: readonly string[] = [
     ' ☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼',
     ...Array.from({ length: 0x5f }, (_, i) => String.fromCharCode(0x20 + i)),
     '⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ',
 ].flatMap((s) => [...s]);
 
-const BYTE = new Map(CP437.map((ch, i) => [ch, i]));
-BYTE.set(' ', 0x20);
+// Each character's CP437 byte.
+export const CP437_BYTE: ReadonlyMap<string, number> = new Map([...CP437.map((ch, i) => [ch, i] as const), [' ', 0x20]]);
 
 const MAGIC = 'XBIN\x1a';
 const HEADER = 11;
@@ -107,31 +107,65 @@ export function writeXBin({ width, height, cells }: Picture): Uint8Array {
         if (fg > 15 || bg > 15 || (blink && nonblink)) {
             throw new Error(`cell ${(n % width) + 1},${Math.floor(n / width) + 1} can't be saved in XBin`);
         }
-        bytes[HEADER + n * 2] = BYTE.get(ch) ?? 0x3f;
+        bytes[HEADER + n * 2] = CP437_BYTE.get(ch) ?? 0x3f;
         bytes[HEADER + n * 2 + 1] = fg | ((bg & 7) << 4) | (blink || bg > 7 ? 0x80 : 0);
     });
     return bytes;
 }
 
-// The picture as markup, one line per row, to draw from the top left
-// corner. Only what fits on the screen is kept.
-export function pictureMarkup({ width, cells }: Picture): string[] {
+// A cell to draw; with no background it keeps the one on screen.
+export interface Paint {
+    ch:    string;
+    fg:    Color;
+    bg:    Color | null;
+    blink: boolean;
+}
+
+// A picture to draw over what's on screen: cells left empty (null) keep
+// what's there.
+export interface Painting {
+    width:  number;
+    height: number;
+    cells:  readonly (Paint | null)[]; // row by row
+}
+
+// The picture as markup, to draw from the top left corner: a line per row,
+// or more where a row has cells left empty (null) or with no background.
+// Only what fits on the screen is kept.
+export function pictureMarkup({ width, cells }: Painting): string[] {
     const name = (c: number): string => COLORS[c] ?? String(c);
     const lines: string[] = [];
     for (let y = 0; y < Math.min(HEIGHT, cells.length / width); y++) {
-        let line = `{y ${y + 1}}{x 1}`;
-        let last: Cell | null = null;
-        for (const c of cells.slice(y * width, y * width + Math.min(width, WIDTH))) {
+        let line = '';
+        let last: Paint | null = null;
+        const end = (): void => {
+            if (line) {
+                lines.push(line);
+            }
+            line = '';
+            last = null;
+        };
+        cells.slice(y * width, y * width + Math.min(width, WIDTH)).forEach((c, x) => {
+            // (Once a line has a background it can't go back to none.)
+            if (!c || (c.bg === null && last?.bg != null)) {
+                end();
+            }
+            if (!c) {
+                return;
+            }
+            if (!line) {
+                line = `{y ${y + 1}}{x ${x + 1}}`;
+            }
             if (c.fg !== last?.fg || c.blink !== last.blink) {
                 line += c.blink ? `{blink ${name(c.fg)}}` : c.fg < 16 ? `{${name(c.fg)}}` : `{color ${c.fg}}`;
             }
-            if (c.bg !== last?.bg) {
+            if (c.bg !== null && c.bg !== last?.bg) {
                 line += `{on ${name(c.bg)}}`;
             }
             line += escapeMarkup(c.ch);
             last = c;
-        }
-        lines.push(line);
+        });
+        end();
     }
     return lines;
 }
