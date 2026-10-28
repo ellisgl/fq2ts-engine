@@ -97,6 +97,9 @@ export interface GameMap {
     encounters?: string;
     // No fights between players here (on a server). Interiors always are.
     safe?: boolean;
+    // An inn: players can take a room here (on a server), and sleep
+    // safely while they're away.
+    inn?: boolean;
     tiles: string[][];
     fg: Color[][];
     bg: Color[][];
@@ -185,6 +188,7 @@ export function readMap(value: unknown, path: string): GameMap {
         kind: mapKind,
         ...(r['encounters'] === undefined ? {} : { encounters: field(r, 'encounters', path, string) }),
         ...(field(r, 'safe', path, boolean, false) ? { safe: true } : {}),
+        ...(field(r, 'inn', path, boolean, false) ? { inn: true } : {}),
         tiles,
         fg,
         bg,
@@ -211,6 +215,7 @@ export function writeMap(map: GameMap): string {
         kind: map.kind,
         ...(map.encounters === undefined ? {} : { encounters: map.encounters }),
         ...(map.safe ? { safe: true } : {}),
+        ...(map.inn ? { inn: true } : {}),
         tiles: rows(map.tiles, (ch) => ch),
         fg: colorRows(map.fg),
         bg: colorRows(map.bg),
@@ -353,6 +358,20 @@ export class World {
             map.safe = true;
         } else {
             delete map.safe;
+        }
+    }
+
+    // Whether players can take a room here (it's an inn).
+    public isInn(screen: number): boolean {
+        return this.maps.get(screen)?.inn === true;
+    }
+
+    public setInn(screen: number, inn: boolean): void {
+        const map = this.map(screen);
+        if (inn) {
+            map.inn = true;
+        } else {
+            delete map.inn;
         }
     }
 

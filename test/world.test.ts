@@ -164,6 +164,20 @@ test('safe screens: interiors always, others when marked; the mark is kept in th
     expect(() => readMap({ ...JSON.parse(writeMap(makeMap(4))), safe: 'yes' }, 'x')).toThrow('x.safe: expected true or false');
 });
 
+test('inns: only when marked; the mark is kept in the file', () => {
+    const world = makeWorld(makeMap(1, 2), makeMap(2, 1));
+    expect([world.isInn(1), world.isInn(2), world.isInn(99)]).toEqual([false, false, false]);
+    world.setInn(1, true);
+    const dir = tempDir();
+    world.save(dir);
+    expect(JSON.parse(readFileSync(join(dir, '0001.json'), 'utf8'))).toMatchObject({ inn: true });
+    expect(JSON.parse(readFileSync(join(dir, '0002.json'), 'utf8'))).not.toHaveProperty('inn');
+    expect(World.load(dir).isInn(1)).toBe(true);
+    world.setInn(1, false);
+    expect(world.isInn(1)).toBe(false);
+    expect(() => readMap({ ...JSON.parse(writeMap(makeMap(4))), inn: 1 }, 'x')).toThrow('x.inn: expected true or false');
+});
+
 describe('editing', () => {
     test('cell, setCell and setKind', () => {
         const world = makeWorld(makeMap(1));
