@@ -186,6 +186,16 @@ describe('moving', () => {
         expect(game.playing).toMatchObject({ screen: 1, x: 79, y: 6 });
     });
 
+    test('the world map shows the screens been to, and those around them', async () => {
+        // (From screen 1, east to screen 2: the first column and row of the
+        // grid, and the next of each.)
+        const { game } = await explore(['right'], { player: player({ x: 79, y: 10 }) });
+        expect(game.playing.seen).toEqual([1, 2, 3, 81, 82, 83]);
+        // Interiors (screen 3) show nothing new: where the player is on the map stays.
+        const inside = await explore(['down'], { player: { ...player(), seen: [1, 2] } });
+        expect(inside.game.playing.seen).toEqual([1, 2, 81, 82]);
+    });
+
     test("interiors don't change the world map position", async () => {
         const { game } = await explore(['down']);
         expect(game.playing).toMatchObject({ screen: 3, mapScreen: 1 });
@@ -405,6 +415,17 @@ describe('built-in screens', () => {
             expect(row(term.screen, 2)).toBe('');
             return 'escape';
         }, 'escape');
+        await run(game, term);
+    });
+
+    test('M shows only what the player has seen of the world', async () => {
+        const { game, term } = setup({ player: { ...player({ screen: 2, mapScreen: 2 }), seen: [2] } });
+        term.feed(...RESUME, 'M', () => {
+            // (Screen 2 now, and those around it; not screen 5, far off.)
+            expect(term.screen.cell(3, 1).bg).toBe(1);
+            expect(term.screen.cell(5, 1)).toMatchObject({ ch: ' ', bg: 0 });
+            return 'x';
+        }, 'escape', 'escape');
         await run(game, term);
     });
 

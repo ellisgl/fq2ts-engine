@@ -1,7 +1,7 @@
 // The player's state: what gets saved. The flags are up to the content;
 // the engine only knows they are named booleans, numbers and strings.
 
-import { record, integer, boolean, field, oneOf, string } from './validate.ts';
+import { InvalidData, record, integer, boolean, field, oneOf, string } from './validate.ts';
 import type { ItemCatalogue, ItemDef, ItemKind } from './items.ts';
 
 export type FlagValue = boolean | number | string;
@@ -21,6 +21,10 @@ export interface Player<F extends FlagRecord> {
     y: number;
     // The outdoor screen shown as "you are here" on the world map.
     mapScreen: number;
+    // The outdoor screens the world map shows: those the player has been
+    // to, and the ones around them. Left out, it's the ones around where
+    // they are (a new game, or a save from before the map was discovered).
+    seen?: number[];
     hp: number;
     maxHp: number;
     gold: number;
@@ -129,5 +133,15 @@ export function restorePlayer<F extends FlagRecord>(start: Player<F>, value: unk
         monsters: field(r, 'monsters', path, boolean, start.monsters),
         superhuman: field(r, 'superhuman', path, boolean, start.superhuman),
         flags: r['flags'] === undefined ? structuredClone(start.flags) : restoreFlags(start.flags, r['flags'], `${path}.flags`),
+        ...(r['seen'] === undefined ? {} : { seen: restoreSeen(r['seen'], `${path}.seen`) }),
     };
+}
+
+// The screens seen on the world map: whole numbers, each once.
+function restoreSeen(value: unknown, path: string): number[] {
+    if (!Array.isArray(value)) {
+        throw new InvalidData(`${path}: expected a list of screens`);
+    }
+
+    return [...new Set(value.map((n: unknown, i) => integer(n, `${path}[${i}]`)))];
 }

@@ -36,8 +36,16 @@ describe('restorePlayer', () => {
             armour: 'vest',
             monsters: true,
             flags: { seen: true, count: 3, name: 'Bob' },
+            seen: [1, 2, 81],
         };
         expect(restorePlayer(start, JSON.parse(JSON.stringify(saved)), items)).toEqual(saved);
+    });
+
+    test("the world map's seen screens: left out if the save has none, each once, and checked", () => {
+        expect(restorePlayer(start, {}, items)).not.toHaveProperty('seen');
+        expect(restorePlayer(start, { seen: [3, 1, 3] }, items).seen).toEqual([3, 1]);
+        expect(() => restorePlayer(start, { seen: 'all' }, items)).toThrow('save.seen: expected a list of screens');
+        expect(() => restorePlayer(start, { seen: [1.5] }, items)).toThrow('save.seen[0]');
     });
 
     test('missing fields and flags keep their starting values', () => {

@@ -261,6 +261,8 @@ const WORLD_MAP_CELLS: readonly (readonly [string, Color, Color])[] = [
     [' ', 15, 1], [' ', 15, 2], [' ', 15, 1], [' ', 15, 7], ['■', 7, 2],
     [' ', 15, 2], ['■', 7, 2], [' ', 15, 7], [' ', 15, 1],
 ];
+// A screen the player hasn't seen yet.
+const UNSEEN = [' ', 8, 0] as const;
 
 // The fields the debug settings editor asks for, in order.
 const SETTINGS: readonly (readonly [string, NumericField])[] = [
@@ -772,10 +774,28 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         }
     }
 
+    // Where the player is on the world map, and what they've seen of it:
+    // each outdoor screen they come to, and the ones around it.
     private trackMapScreen(): void {
         const p = this.playing;
         if (this.world.isOutdoors(p.screen)) {
             p.mapScreen = p.screen;
+        }
+
+        const seen = new Set(p.seen ?? []);
+        const before = seen.size;
+        const { col, row } = gridPosition(p.mapScreen);
+        for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+                const c = col + dx;
+                const r = row + dy;
+                if (c >= 1 && c <= GRID_WIDTH && r >= 1 && r <= GRID_HEIGHT) {
+                    seen.add((r - 1) * GRID_WIDTH + c);
+                }
+            }
+        }
+        if (p.seen === undefined || seen.size !== before) {
+            p.seen = [...seen].sort((a, b) => a - b);
         }
     }
 
@@ -1055,11 +1075,14 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         this.checkpoint();
     }
 
+    // The world map: what the player has seen of it (the rest is dark), and
+    // where they are.
     private async worldMap(): Promise<void> {
         const { screen } = this;
         this.clearScreen();
+        const seen = new Set(this.playing.seen ?? []);
         for (let n = 1; n <= GRID_WIDTH * GRID_HEIGHT; n++) {
-            const [ch, fg, bg] = at(WORLD_MAP_CELLS, this.world.kind(n) ?? 0);
+            const [ch, fg, bg] = seen.has(n) ? at(WORLD_MAP_CELLS, this.world.kind(n) ?? 0) : UNSEEN;
             const { col, row } = gridPosition(n);
             screen.put(col, row, ch, fg, bg);
         }
