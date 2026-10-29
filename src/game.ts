@@ -183,6 +183,10 @@ export interface GameOptions<F extends FlagRecord, W extends WorldRecord = World
     // Called when a fight ends, either way (a random one or a script's): a
     // server's news.
     fought?(player: Player<F>, monster: Monster, result: FightResult): void;
+    // Someone lying in wait (a server's bounty hunters): asked at each step
+    // onto wild ground, with or without random monsters, for someone to
+    // fight there and then, or null for no one.
+    ambush?(player: Player<F>): Monster | null;
     // More keys while exploring (a server's P, L...), by key, each a script.
     // They're listed by ?, with their help.
     keys?: Readonly<Record<string, ExtraKey<F, W>>>;
@@ -308,6 +312,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     private readonly moved: ((player: Player<F>) => void) | undefined;
     private readonly keys: Readonly<Record<string, ExtraKey<F, W>>>;
     private readonly fought: ((player: Player<F>, monster: Monster, result: FightResult) => void) | undefined;
+    private readonly ambush: ((player: Player<F>) => Monster | null) | undefined;
     // Told from outside, for when the game is next waiting for a key: the
     // figures have moved, and notices to show.
     private figuresChanged = false;
@@ -324,7 +329,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // Where the player was when `moved` was last told.
     private lastPlace = '';
 
-    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {}, fought, worldStore, news = () => undefined }: GameOptions<F, W>) {
+    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {}, fought, ambush, worldStore, news = () => undefined }: GameOptions<F, W>) {
         this.term = term;
         this.screen = term.screen;
         this.world = world;
@@ -367,6 +372,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         this.moved = moved;
         this.keys = mergeKeys(content.keys ?? {}, keys, debug);
         this.fought = fought;
+        this.ambush = ambush;
     }
 
     // ---- Told from outside (on a server, by other players' sessions)
@@ -826,22 +832,18 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
     // A random fight, sometimes, on screens with monsters. Each screen can
     // name its encounter table; the rest use "default".
+    // Or someone lying in wait (`ambush`), on any wild ground.
     private async encounter(): Promise<void> {
         const p = this.playing;
-        if (!p.monsters || !this.world.hasMonsters(p.screen)) {
-            return;
-        }
-
         if (!WILD_TERRAIN.includes(this.world.terrain(p.screen, p.x, p.y))) {
             return;
         }
 
-        const table = this.monsters.table(this.world.encounters(p.screen) ?? 'default');
-        if (Math.floor(Math.random() * table.chance) !== 0) {
+        const monster = this.ambush?.(p) ?? this.randomMonster();
+        if (!monster) {
             return;
         }
 
-        const monster = pickMonster(table, p.exp);
         const result = await fight(this.term, p, gearOf(p, this.items), monster, { superhumanFactor: this.config.superhumanFactor });
         for (const message of wear(p, this.items)) {
             this.message(message);
@@ -859,6 +861,18 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         }
 
         this.checkpoint();
+    }
+
+    // A monster from the screen's encounter table, now and then, if it has
+    // monsters and the player has them on.
+    private randomMonster(): Monster | null {
+        const p = this.playing;
+        if (!p.monsters || !this.world.hasMonsters(p.screen)) {
+            return null;
+        }
+
+        const table = this.monsters.table(this.world.encounters(p.screen) ?? 'default');
+        return Math.floor(Math.random() * table.chance) === 0 ? pickMonster(table, p.exp) : null;
     }
 
     // A fight is over: `fought` is told, and this is the script the monster

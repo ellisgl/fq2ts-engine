@@ -32,6 +32,7 @@ interface Options {
     moved?: GameOptions<TestFlags, TestWorld>['moved'];
     keys?: GameOptions<TestFlags, TestWorld>['keys'];
     fought?: GameOptions<TestFlags, TestWorld>['fought'];
+    ambush?: GameOptions<TestFlags, TestWorld>['ambush'];
 }
 
 // A bestiary whose "default" table holds just this monster.
@@ -346,6 +347,25 @@ describe('encounters', () => {
         await explore(['right', 'enter', 'enter', 'x', 'x'], { player: p, monsters: blob });
         expect(p.items).toEqual({});
         expect(p.weapon).toBeNull();
+    });
+
+    test('someone lying in wait fights the player on wild ground, monsters or not', async () => {
+        const asked: number[] = [];
+        const ambush = (p: Player<TestFlags>) => {
+            asked.push(p.x);
+            return monster({ name: 'Hunter', hp: 1, attack: 0, gold: 40, exp: 1 });
+        };
+        const fought: string[] = [];
+        // (Screen 1 has no monsters, and they're off.)
+        const p = player({ x: 30, y: 15 });
+        await explore(['right', 'enter', 'enter', 'x', 'x'], { player: p, ambush, fought: (_, m, result) => fought.push(`${m.name} ${result}`) });
+        expect(asked).toEqual([31]);
+        expect(fought).toEqual(['Hunter won']);
+        expect(p.gold).toBe(60);
+        // No one there: no fight.
+        const quiet = player({ x: 30, y: 15 });
+        await explore(['right'], { player: quiet, ambush: () => null });
+        expect(quiet.gold).toBe(20);
     });
 
     test("most steps don't start one", async () => {
