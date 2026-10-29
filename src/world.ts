@@ -100,6 +100,9 @@ export interface GameMap {
     // An inn: players can take a room here (on a server), and sleep
     // safely while they're away.
     inn?: boolean;
+    // The player's home: leaving the realm here (on a server), they sleep
+    // safely in their own bed, for nothing.
+    home?: boolean;
     tiles: string[][];
     fg: Color[][];
     bg: Color[][];
@@ -189,6 +192,7 @@ export function readMap(value: unknown, path: string): GameMap {
         ...(r['encounters'] === undefined ? {} : { encounters: field(r, 'encounters', path, string) }),
         ...(field(r, 'safe', path, boolean, false) ? { safe: true } : {}),
         ...(field(r, 'inn', path, boolean, false) ? { inn: true } : {}),
+        ...(field(r, 'home', path, boolean, false) ? { home: true } : {}),
         tiles,
         fg,
         bg,
@@ -216,6 +220,7 @@ export function writeMap(map: GameMap): string {
         ...(map.encounters === undefined ? {} : { encounters: map.encounters }),
         ...(map.safe ? { safe: true } : {}),
         ...(map.inn ? { inn: true } : {}),
+        ...(map.home ? { home: true } : {}),
         tiles: rows(map.tiles, (ch) => ch),
         fg: colorRows(map.fg),
         bg: colorRows(map.bg),
@@ -372,6 +377,20 @@ export class World {
             map.inn = true;
         } else {
             delete map.inn;
+        }
+    }
+
+    // Whether this is the player's home (they sleep safely here, for free).
+    public isHome(screen: number): boolean {
+        return this.maps.get(screen)?.home === true;
+    }
+
+    public setHome(screen: number, home: boolean): void {
+        const map = this.map(screen);
+        if (home) {
+            map.home = true;
+        } else {
+            delete map.home;
         }
     }
 

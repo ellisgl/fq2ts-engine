@@ -178,6 +178,19 @@ test('inns: only when marked; the mark is kept in the file', () => {
     expect(() => readMap({ ...JSON.parse(writeMap(makeMap(4))), inn: 1 }, 'x')).toThrow('x.inn: expected true or false');
 });
 
+test('homes: only when marked; the mark is kept in the file', () => {
+    const world = makeWorld(makeMap(1, 2), makeMap(2, 1));
+    world.setHome(1, true);
+    const dir = tempDir();
+    world.save(dir);
+    expect(JSON.parse(readFileSync(join(dir, '0001.json'), 'utf8'))).toMatchObject({ home: true });
+    expect(JSON.parse(readFileSync(join(dir, '0002.json'), 'utf8'))).not.toHaveProperty('home');
+    expect([World.load(dir).isHome(1), world.isHome(2), world.isHome(99)]).toEqual([true, false, false]);
+    world.setHome(1, false);
+    expect(world.isHome(1)).toBe(false);
+    expect(() => readMap({ ...JSON.parse(writeMap(makeMap(4))), home: 'yes' }, 'x')).toThrow('x.home: expected true or false');
+});
+
 describe('editing', () => {
     test('cell, setCell and setKind', () => {
         const world = makeWorld(makeMap(1));
