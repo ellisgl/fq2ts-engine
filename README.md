@@ -30,19 +30,26 @@ is a bigger one. This page is the map of the engine itself.
 
 ```json
 "dependencies": {
-  "@fq2ts/engine": "github:ellisgl/fq2ts-engine#21936121b26338ae7b02d85b7d470e58483646c5"
+  "@fq2ts/engine": "github:ellisgl/fq2ts-engine#cc6e1ef4572ee3d8117bd32c9178b994b47e4263"
 },
 "overrides": {
-  "@fq2ts/engine": "github:ellisgl/fq2ts-engine#21936121b26338ae7b02d85b7d470e58483646c5"
+  "@fq2ts/engine": "github:ellisgl/fq2ts-engine#cc6e1ef4572ee3d8117bd32c9178b994b47e4263"
 }
 ```
 
 It ships its TypeScript source, which Bun runs as it is. Name it by its
-full commit hash (v0.13.0's above), not the tag, and give the same in
+full commit hash (v0.13.1's above), not the tag, and give the same in
 `overrides`: `@fq2ts/server` and `@fq2ts/tools` depend on it too, and Bun
 fails to resolve a tag that a project and its dependencies both name, or
 installs two engines for two different names, so a game's content and the
 server wouldn't share one.
+
+Each release's commit hash is the line ending in `^{}` here (the other is
+the tag's own):
+
+```sh
+git ls-remote --tags https://github.com/ellisgl/fq2ts-engine
+```
 
 Each file is its own module: `import { Game } from '@fq2ts/engine/game'`,
 `import { draw } from '@fq2ts/engine/text'`, and so on.
