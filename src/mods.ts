@@ -14,7 +14,8 @@
 // screen, a trigger tile, an event...) is an error naming the mod, so two
 // mods can't quietly fight over something; show scripts and the new game
 // script run one after the other instead (the game's first, then the
-// mods', by id). A folder whose name starts with _ or . is left out.
+// mods', by id). Only the mods named are loaded (a game's FQ2_ENABLE_MODS,
+// say): a folder that isn't named is left alone, so it's never run.
 //
 // Mods are code, run with the game's own permissions: only install mods
 // you trust.
@@ -102,18 +103,14 @@ const ENTRIES = ['mod.ts', 'mod.js'];
 
 // ---- Loading
 
-// The mods in a folder (each in its own folder), sorted by id. A missing
-// folder has none.
-export async function loadMods(dir: string): Promise<LoadedMod[]> {
-    if (!existsSync(dir)) {
-        return [];
-    }
-
+// The mods named, each a folder in dir, sorted by id. A name that isn't
+// there is an error; no names is no mods.
+export async function loadMods(dir: string, names: readonly string[]): Promise<LoadedMod[]> {
     const mods: LoadedMod[] = [];
-    for (const name of readdirSync(dir).sort()) {
+    for (const name of names) {
         const modDir = join(dir, name);
-        if (name.startsWith('_') || name.startsWith('.') || !statSync(modDir).isDirectory()) {
-            continue;
+        if (!existsSync(modDir) || !statSync(modDir).isDirectory()) {
+            throw new InvalidData(`There's no mod "${name}" in ${dir}.`);
         }
 
         mods.push(await loadMod(modDir));
@@ -129,6 +126,24 @@ export async function loadMods(dir: string): Promise<LoadedMod[]> {
     }
 
     return mods.sort((a, b) => a.mod.id.localeCompare(b.mod.id));
+}
+
+// The mod folders named in a setting, such as "wishing-well, other-mod"
+// (commas or spaces between them). Empty or missing is none.
+export function readModList(text: string | undefined, where: string): string[] {
+    const names = (text ?? '').split(/[\s,]+/).filter((name) => name !== '');
+    for (const name of names) {
+        if (/[/\\]/.test(name) || name === '.' || name === '..') {
+            throw new InvalidData(`${where}: expected the names of folders in the mods folder, found "${name}"`);
+        }
+    }
+
+    const twice = names.find((name, i) => names.indexOf(name) !== i);
+    if (twice !== undefined) {
+        throw new InvalidData(`${where}: "${twice}" is named twice`);
+    }
+
+    return names;
 }
 
 // One mod, from its folder.

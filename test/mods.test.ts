@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MOD_API, applyMods, describeMod, loadMods, readMod, type LoadedMod, type Mod, type ModdableGame } from '../src/mods.ts';
+import { MOD_API, applyMods, describeMod, loadMods, readMod, readModList, type LoadedMod, type Mod, type ModdableGame } from '../src/mods.ts';
 import { Bestiary, readBestiary } from '../src/combat.ts';
 import { readItems } from '../src/items.ts';
 import { blankMap, writeMap } from '../src/world.ts';
@@ -247,47 +247,66 @@ describe('playing with mods', () => {
 });
 
 describe('loadMods', () => {
-    test('loads each folder, sorted by id, with its data; _ and . folders are left out', async () => {
+    test('loads the folders named, sorted by id, with their data; others are left alone', async () => {
         const dir = tempDir();
         writeMod(dir, 'z-folder', SOURCE('alpha'), {
             'items.json': [{ id: 'coin', name: 'Coin', kind: 'misc' }],
             'monsters.json': { monsters: [], tables: [] },
         });
         writeMod(dir, 'a-folder', SOURCE('beta', ", screens: { 1: { at: { '1,1': (g) => g.write('hi') } } }"));
-        writeMod(dir, '_off', SOURCE('off'));
-        writeMod(dir, '.hidden', SOURCE('hidden'));
-        writeFileSync(join(dir, 'notes.txt'), 'not a mod');
+        writeMod(dir, 'unnamed', SOURCE('unnamed'));
+        writeMod(dir, 'broken', 'this is not TypeScript (');
         writeFileSync(join(dir, 'z-folder', 'maps', '0500.json'), writeMap(blankMap(500, 2)));
-        const mods = await loadMods(dir);
+        const mods = await loadMods(dir, ['z-folder', 'a-folder']);
         expect(mods.map(describeMod)).toEqual(['The alpha 0.1 (alpha)', 'The beta 0.1 (beta)']);
         expect(mods[0]?.items?.get('coin').name).toBe('Coin');
         expect(mods[0]?.maps.map((m) => m.screen)).toEqual([500]);
         expect(mods[1]?.mod.screens?.[1]?.at?.['1,1']).toBeFunction();
     });
 
-    test('mod.js works too, and a missing folder has no mods', async () => {
+    test('mod.js works too, and no names is no mods', async () => {
         const dir = tempDir();
         mkdirSync(join(dir, 'js'));
         writeFileSync(join(dir, 'js', 'mod.js'), SOURCE('js'));
-        expect((await loadMods(dir)).map((m) => m.mod.id)).toEqual(['js']);
-        expect(await loadMods(join(dir, 'nowhere'))).toEqual([]);
+        expect((await loadMods(dir, ['js'])).map((m) => m.mod.id)).toEqual(['js']);
+        expect(await loadMods(dir, [])).toEqual([]);
+        expect(await loadMods(join(dir, 'nowhere'), [])).toEqual([]);
     });
 
-    test("a folder without mod.ts, or two mods with one id, won't load", async () => {
+    test("a name that isn't there, a folder without mod.ts, or two mods with one id won't load", async () => {
+        const dir = tempDir();
+        writeFileSync(join(dir, 'file'), 'not a mod');
+        expect(String(await caught(loadMods(dir, ['missing'])))).toContain(`There's no mod "missing" in ${dir}.`);
+        expect(String(await caught(loadMods(dir, ['file'])))).toContain(`There's no mod "file" in ${dir}.`);
+
         const empty = tempDir();
         mkdirSync(join(empty, 'nothing'));
-        expect(String(await caught(loadMods(empty)))).toContain(`The mod in ${join(empty, 'nothing')} has no mod.ts (or mod.js).`);
+        expect(String(await caught(loadMods(empty, ['nothing'])))).toContain(`The mod in ${join(empty, 'nothing')} has no mod.ts (or mod.js).`);
 
         const twins = tempDir();
         writeMod(twins, 'one', SOURCE('same'));
         writeMod(twins, 'two', SOURCE('same'));
-        expect(String(await caught(loadMods(twins)))).toContain('Two mods have the id "same"');
+        expect(String(await caught(loadMods(twins, ['one', 'two'])))).toContain('Two mods have the id "same"');
     });
 
     test("a mod's data files are checked, naming the mod", async () => {
         const dir = tempDir();
         writeMod(dir, 'bad', SOURCE('bad'), { 'items.json': [{ id: 'x', name: 'X', kind: 'food' }] });
-        expect(String(await caught(loadMods(dir)))).toContain('bad/items.json[0].kind');
+        expect(String(await caught(loadMods(dir, ['bad'])))).toContain('bad/items.json[0].kind');
+    });
+});
+
+describe('readModList', () => {
+    test('names split by commas or spaces; empty or missing is none', () => {
+        expect(readModList('wishing-well, other-mod  third,', 'FQ2_ENABLE_MODS')).toEqual(['wishing-well', 'other-mod', 'third']);
+        expect(readModList('', 'FQ2_ENABLE_MODS')).toEqual([]);
+        expect(readModList(undefined, 'FQ2_ENABLE_MODS')).toEqual([]);
+    });
+
+    test('paths and names given twice are errors', () => {
+        expect(() => readModList('a/b', 'FQ2_ENABLE_MODS')).toThrow('FQ2_ENABLE_MODS: expected the names of folders in the mods folder, found "a/b"');
+        expect(() => readModList('..', 'FQ2_ENABLE_MODS')).toThrow('found ".."');
+        expect(() => readModList('a, b, a', 'FQ2_ENABLE_MODS')).toThrow('FQ2_ENABLE_MODS: "a" is named twice');
     });
 });
 
