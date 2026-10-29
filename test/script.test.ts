@@ -355,6 +355,15 @@ describe('ScriptContext: choices and scrolling', () => {
 });
 
 describe('ScriptContext: name and sex', () => {
+    test('a title is set, and an empty one taken off', () => {
+        const { g, game } = scriptContext();
+        expect(g.title).toBe('');
+        g.title = 'the Brave';
+        expect(game.playing.title).toBe('the Brave');
+        g.title = '';
+        expect(game.playing).not.toHaveProperty('title');
+    });
+
     test('name is trimmed, and bySex picks a word', () => {
         const { g, game } = scriptContext();
         g.name = '  Ellis ';

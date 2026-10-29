@@ -37,8 +37,15 @@ describe('restorePlayer', () => {
             monsters: true,
             flags: { seen: true, count: 3, name: 'Bob' },
             seen: [1, 2, 81],
+            title: 'the Brave',
         };
         expect(restorePlayer(start, JSON.parse(JSON.stringify(saved)), items)).toEqual(saved);
+    });
+
+    test('a title is kept, and none is left out', () => {
+        expect(restorePlayer(start, { title: 'the Bold' }, items).title).toBe('the Bold');
+        expect(restorePlayer(start, { title: '' }, items)).not.toHaveProperty('title');
+        expect(() => restorePlayer(start, { title: 5 }, items)).toThrow('save.title');
     });
 
     test("the world map's seen screens: left out if the save has none, each once, and checked", () => {

@@ -62,6 +62,20 @@ export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRe
         this.player.name = value.trim();
     }
 
+    // A title earned ("the Wyrmslayer"), or "" for none; shown after the
+    // name where players are listed.
+    public get title(): string {
+        return this.player.title ?? '';
+    }
+
+    public set title(value: string) {
+        if (value) {
+            this.player.title = value;
+        } else {
+            delete this.player.title;
+        }
+    }
+
     public get sex(): Sex {
         return this.player.sex;
     }
