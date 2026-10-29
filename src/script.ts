@@ -10,10 +10,10 @@
 
 import { draw } from './text.ts';
 import { at } from './assert.ts';
-import { STATUS_ROW, askText, choose, scrollText, statusBar, textInput } from './ui.ts';
+import { askText, choose, scrollText, statusBar, statusRow, textInput } from './ui.ts';
 import { cellCount } from './chars.ts';
 import { fight, type FightOptions, type FightResult, type Monster } from './combat.ts';
-import { HEIGHT, type Screen } from './screen.ts';
+import type { Screen } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
 import { clampAlignment, equipped, type FlagRecord, type Player, type Sex, type Slot } from './player.ts';
 import { count, effectOf, equip, gearOf, give, take, wear, type ItemDef } from './items.ts';
@@ -276,7 +276,7 @@ export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRe
         this.takeScreen();
         for (const line of lines) {
             const end = draw(this.screen, line, { y: this.printRow });
-            this.printRow = Math.min(end.y + 1, HEIGHT);
+            this.printRow = Math.min(end.y + 1, this.screen.height);
         }
     }
 
@@ -304,7 +304,7 @@ export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRe
 
         this.takeScreen();
         const y = this.printRow;
-        this.printRow = Math.min(y + shown.length, HEIGHT);
+        this.printRow = Math.min(y + shown.length, this.screen.height);
         const picked = await choose(this.term, shown.map((option) => option.text), { y });
         return shown[picked]?.i ?? -1;
     }
@@ -328,10 +328,11 @@ export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRe
     // say): the answer, or null on Escape. The status bar comes back after.
     public async askLine(question: string, length = 60): Promise<string | null> {
         const { screen } = this.term;
+        const y = statusRow(screen);
         statusBar(screen, '');
-        draw(screen, `{white}${question}`, { x: 3, y: STATUS_ROW, bg: 1, wrap: false });
+        draw(screen, `{white}${question}`, { x: 3, y, bg: 1, wrap: false });
         const x = 3 + cellCount(question) + 1;
-        const answer = await askText(this.term, { x, y: STATUS_ROW, length: Math.max(1, Math.min(length + 1, 78 - x)), fg: 15, bg: 1 });
+        const answer = await askText(this.term, { x, y, length: Math.max(1, Math.min(length + 1, screen.width - 2 - x)), fg: 15, bg: 1 });
         this.game.showStatus();
         return answer;
     }

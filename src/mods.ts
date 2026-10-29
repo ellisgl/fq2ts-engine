@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Bestiary, readBestiary, type EncounterTable } from './combat.ts';
 import { ItemCatalogue, readItems } from './items.ts';
-import { World, readMap, type GameMap } from './world.ts';
+import { MAP_SIZE, World, readMap, sizeOf, type GameMap, type MapSize } from './world.ts';
 import { InvalidData, field, integer, record, string } from './validate.ts';
 import type { Content, Coord, ScreenScripts } from './game.ts';
 import type { FlagRecord, FlagValue } from './player.ts';
@@ -104,8 +104,9 @@ const ENTRIES = ['mod.ts', 'mod.js'];
 // ---- Loading
 
 // The mods named, each a folder in dir, sorted by id. A name that isn't
-// there is an error; no names is no mods.
-export async function loadMods(dir: string, names: readonly string[]): Promise<LoadedMod[]> {
+// there is an error; no names is no mods. Their screens must be the game's
+// map size (mapSize(config.screen); 79x22 by default).
+export async function loadMods(dir: string, names: readonly string[], size: MapSize = MAP_SIZE): Promise<LoadedMod[]> {
     const mods: LoadedMod[] = [];
     for (const name of names) {
         const modDir = join(dir, name);
@@ -113,7 +114,7 @@ export async function loadMods(dir: string, names: readonly string[]): Promise<L
             throw new InvalidData(`There's no mod "${name}" in ${dir}.`);
         }
 
-        mods.push(await loadMod(modDir));
+        mods.push(await loadMod(modDir, size));
     }
 
     const seen = new Map<string, string>();
@@ -146,8 +147,8 @@ export function readModList(text: string | undefined, where: string): string[] {
     return names;
 }
 
-// One mod, from its folder.
-export async function loadMod(dir: string): Promise<LoadedMod> {
+// One mod, from its folder, with screens of `size` (the game's map).
+export async function loadMod(dir: string, size: MapSize = MAP_SIZE): Promise<LoadedMod> {
     const entry = ENTRIES.map((file) => join(dir, file)).find((file) => existsSync(file));
     if (entry === undefined) {
         throw new InvalidData(`The mod in ${dir} has no mod.ts (or mod.js).`);
@@ -168,7 +169,7 @@ export async function loadMod(dir: string): Promise<LoadedMod> {
             ? readdirSync(mapsDir)
                 .filter((file) => file.endsWith('.json'))
                 .sort()
-                .map((file) => readMap(JSON.parse(readFileSync(join(mapsDir, file), 'utf8')), where(`maps/${file}`)))
+                .map((file) => readMap(JSON.parse(readFileSync(join(mapsDir, file), 'utf8')), where(`maps/${file}`), size))
             : [],
     };
 }
@@ -295,7 +296,7 @@ function readScript(value: unknown, path: string): ModScript<FlagRecord> {
 
 // The game with its mods added. The game itself is left as it was.
 export function applyMods<F extends FlagRecord, W extends WorldRecord = WorldRecord>(game: ModdableGame<F, W>, mods: readonly LoadedMod[]): ModdableGame<F, W> {
-    const world = new World(new Map(game.world.screens().map((screen) => [screen, game.world.export(screen)])));
+    const world = new World(new Map(game.world.screens().map((screen) => [screen, game.world.export(screen)])), game.world.size);
     const items = game.items.all();
     const monsters = new Map(game.monsters.allMonsters());
     const tables: EncounterTable[] = game.monsters.allTables();
@@ -330,6 +331,10 @@ export function applyMods<F extends FlagRecord, W extends WorldRecord = WorldRec
         for (const map of loaded.maps) {
             if (world.has(map.screen)) {
                 conflict(`screen ${map.screen}`);
+            }
+            const { width, height } = sizeOf(map);
+            if (width !== world.width || height !== world.height) {
+                throw new InvalidData(`The mod "${mod.id}" adds screen ${map.screen} at ${width}x${height}, but the game's screens are ${world.width}x${world.height}.`);
             }
             world.put(map);
         }

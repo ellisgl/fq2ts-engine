@@ -5,7 +5,7 @@
 // "delete") or as
 // the typed character. If the mouse is turned on (start({ mouse: true })),
 // mouse buttons arrive too, as MouseInput events.
-import { Screen, WIDTH, HEIGHT, colorDepth, type ColorDepth } from './screen.ts';
+import { Screen, colorDepth, type ColorDepth, type ScreenSize } from './screen.ts';
 
 // A key name or a single typed character.
 export type Key = string;
@@ -193,9 +193,10 @@ export class Terminal {
 
     // `name` is the game's, for the messages when the terminal won't do.
     // `colors` is how many the terminal shows (by default, what this
-    // process's environment says: see colorDepth).
-    public constructor({ input = process.stdin, output = process.stdout, name = 'This game', colors = colorDepth(process.env) }: { input?: TerminalInput; output?: TerminalOutput; name?: string; colors?: ColorDepth } = {}) {
-        this.screen = new Screen(colors);
+    // process's environment says: see colorDepth). `size` is the game's
+    // screen (Config.screen; by default 80x25).
+    public constructor({ input = process.stdin, output = process.stdout, name = 'This game', colors = colorDepth(process.env), size }: { input?: TerminalInput; output?: TerminalOutput; name?: string; colors?: ColorDepth; size?: ScreenSize } = {}) {
+        this.screen = new Screen(colors, size);
         this.input = input;
         this.output = output;
         this.name = name;
@@ -209,8 +210,9 @@ export class Terminal {
         }
 
         const { columns, rows } = this.output;
-        if (columns < WIDTH || rows < HEIGHT) {
-            throw new Error(`${this.name} needs a terminal of at least ${WIDTH}x${HEIGHT} (this one is ${columns}x${rows}).`);
+        const { width, height } = this.screen;
+        if (columns < width || rows < height) {
+            throw new Error(`${this.name} needs a terminal of at least ${width}x${height} (this one is ${columns}x${rows}).`);
         }
 
         this.active = true;

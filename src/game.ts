@@ -3,14 +3,14 @@
 import { draw, escapeMarkup } from './text.ts';
 import { at } from './assert.ts';
 import { statusBar, textInput, prompt, scrollText } from './ui.ts';
-import { MAP_WIDTH, MAP_HEIGHT, GRID_WIDTH, GRID_HEIGHT, WILD_TERRAIN, gridPosition, isTriggerCode, type World } from './world.ts';
+import { GRID_WIDTH, GRID_HEIGHT, WILD_TERRAIN, gridPosition, isTriggerCode, mapSize, type World } from './world.ts';
 import { fight, pickMonster, type Bestiary, type FightResult, type Monster } from './combat.ts';
 import { ScriptContext, type Destination, type Script } from './script.ts';
 import { SLOTS, type Saves, type SlotInfo } from './saves.ts';
 import { restorePlayer, type FlagRecord, type FlagValue, type NumericField, type Player } from './player.ts';
 import { gearOf, wear, type ItemCatalogue } from './items.ts';
-import { record, string, number, field } from './validate.ts';
-import type { Cell, Color, Screen } from './screen.ts';
+import { InvalidData, record, string, number, integer, field } from './validate.ts';
+import { DEFAULT_SIZE, HEIGHT, WIDTH, type Cell, type Color, type Screen, type ScreenSize } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
 import { MemoryWorld, restoreWorld, worldView, type WorldRecord, type WorldStore } from './shared.ts';
 
@@ -22,6 +22,10 @@ export interface Config {
     version: string;
     revision: string;
     superhumanFactor: number;
+    // The screen the game is made for: 80x25 unless config.json says
+    // otherwise ("screen": { "width": 120, "height": 37 }). Its map is the
+    // screen less the last column and the bottom three rows (see mapSize).
+    screen: ScreenSize;
 }
 
 export function readConfig(value: unknown, path = 'config.json'): Config {
@@ -33,7 +37,18 @@ export function readConfig(value: unknown, path = 'config.json'): Config {
         version: field(r, 'version', path, string),
         revision: field(r, 'revision', path, string),
         superhumanFactor: field(r, 'superhumanFactor', path, number),
+        screen: r['screen'] === undefined ? DEFAULT_SIZE : readScreenSize(r['screen'], `${path}.screen`),
     };
+}
+
+function readScreenSize(value: unknown, path: string): ScreenSize {
+    const r = record(value, path);
+    const size = { width: field(r, 'width', path, integer), height: field(r, 'height', path, integer) };
+    if (size.width < WIDTH || size.height < HEIGHT) {
+        throw new InvalidData(`${path}: expected at least ${WIDTH}x${HEIGHT}, found ${size.width}x${size.height}`);
+    }
+
+    return size;
 }
 
 // "x,y" on a screen.
@@ -70,8 +85,8 @@ export function placeTriggers<F extends FlagRecord, W extends WorldRecord>(scree
         const scripts = screens[screen];
         const at: Partial<Record<Coord, Script<F, W>>> = { ...scripts?.at };
         const unused = new Set(Object.keys(scripts?.triggers ?? {}));
-        for (let y = 1; y <= MAP_HEIGHT; y++) {
-            for (let x = 1; x <= MAP_WIDTH; x++) {
+        for (let y = 1; y <= world.height; y++) {
+            for (let x = 1; x <= world.width; x++) {
                 const ch = world.trigger(screen, x, y);
                 if (ch === null) {
                     continue;
@@ -348,6 +363,16 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         this.screen = term.screen;
         this.world = world;
         this.config = config;
+
+        const want = config.screen;
+        if (term.screen.width !== want.width || term.screen.height !== want.height) {
+            throw new Error(`${config.title} is made for a ${want.width}x${want.height} screen, but its terminal's is ${term.screen.width}x${term.screen.height} (give the Terminal the config's size: new Terminal({ size: config.screen })).`);
+        }
+
+        const map = mapSize(want);
+        if (world.width !== map.width || world.height !== map.height) {
+            throw new Error(`${config.title}'s screens should be ${map.width}x${map.height} (the map of a ${want.width}x${want.height} screen), but its world's are ${world.width}x${world.height}.`);
+        }
         this.monsters = monsters;
 
         for (const hook of monsters.hooks()) {
@@ -488,7 +513,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // A saved player on a screen that's gone, or off the map, starts again
     // where new games do.
     private placeSafely(player: Player<F>): void {
-        const onMap = player.x >= 1 && player.x <= MAP_WIDTH && player.y >= 1 && player.y <= MAP_HEIGHT;
+        const onMap = player.x >= 1 && player.x <= this.world.width && player.y >= 1 && player.y <= this.world.height;
         if (!this.world.has(player.screen) || !onMap) {
             const { screen, x, y } = this.content.start;
             Object.assign(player, { screen, x, y });
@@ -557,7 +582,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
             }
 
             if (this.debug) {
-                screen.text(1, 25, 'S - Set game settings', 7, 0);
+                screen.text(1, screen.height, 'S - Set game settings', 7, 0);
             }
 
             for (;;) {
@@ -734,7 +759,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         const p = this.playing;
         const x = p.x + dx;
         const y = p.y + dy;
-        if (x < 1 || x > MAP_WIDTH || y < 1 || y > MAP_HEIGHT) {
+        if (x < 1 || x > this.world.width || y < 1 || y > this.world.height) {
             await this.crossEdge(dx, dy);
             return;
         }
@@ -754,8 +779,8 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     private async crossEdge(dx: number, dy: number): Promise<void> {
         const p = this.playing;
         const screen = p.screen + dx + dy * GRID_WIDTH;
-        const x = dx < 0 ? MAP_WIDTH : dx > 0 ? 1 : p.x;
-        const y = dy < 0 ? MAP_HEIGHT : dy > 0 ? 1 : p.y;
+        const x = dx < 0 ? this.world.width : dx > 0 ? 1 : p.x;
+        const y = dy < 0 ? this.world.height : dy > 0 ? 1 : p.y;
         if (!this.world.has(screen) || (!this.noclip && this.world.isSolid(screen, x, y))) {
             this.message('Something blocks you... choose another way.');
             return;
@@ -938,8 +963,8 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     private async redraw(): Promise<void> {
         const { screen } = this;
         screen.clear();
-        for (let y = 1; y <= MAP_HEIGHT; y++) {
-            for (let x = 1; x <= MAP_WIDTH; x++) {
+        for (let y = 1; y <= this.world.height; y++) {
+            for (let x = 1; x <= this.world.width; x++) {
                 this.drawTile(x, y);
             }
         }
@@ -951,8 +976,8 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         }
 
         this.mapCells = [];
-        for (let y = 1; y <= MAP_HEIGHT; y++) {
-            for (let x = 1; x <= MAP_WIDTH; x++) {
+        for (let y = 1; y <= this.world.height; y++) {
+            for (let x = 1; x <= this.world.width; x++) {
                 this.mapCells.push(this.screen.cell(x, y));
             }
         }
@@ -964,7 +989,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
     // Draws the figures on this screen (other players), and keeps where.
     private drawFigures(): void {
-        this.drawnFigures = (this.figures?.(this.playing.screen) ?? []).filter(({ x, y }) => x >= 1 && x <= MAP_WIDTH && y >= 1 && y <= MAP_HEIGHT);
+        this.drawnFigures = (this.figures?.(this.playing.screen) ?? []).filter(({ x, y }) => x >= 1 && x <= this.world.width && y >= 1 && y <= this.world.height);
         for (const { x, y, ch, fg } of this.drawnFigures) {
             this.screen.put(x, y, ch, fg, this.screen.cell(x, y).bg);
         }
@@ -983,7 +1008,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
     // A cell of the map as it was drawn, before the figures and the player.
     private restoreCell(x: number, y: number): void {
-        const cell = this.mapCells[(y - 1) * MAP_WIDTH + (x - 1)];
+        const cell = this.mapCells[(y - 1) * this.world.width + (x - 1)];
         if (cell) {
             this.screen.put(x, y, cell.ch, cell.fg, cell.bg, cell.blink);
         } else {
@@ -992,7 +1017,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     }
 
     public drawTile(x: number, y: number): void {
-        if (x < 1 || x > MAP_WIDTH || y < 1 || y > MAP_HEIGHT) {
+        if (x < 1 || x > this.world.width || y < 1 || y > this.world.height) {
             return;
         }
 
@@ -1165,7 +1190,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
     private async saveScreen(): Promise<void> {
         if (!this.player) {
-            this.screen.text(25, 24, 'Start or load a game first.', 12, 0);
+            this.screen.text(25, this.screen.height - 1, 'Start or load a game first.', 12, 0);
             await this.term.key();
 
             return;
@@ -1210,8 +1235,8 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
             const savedWorld = typeof saved === 'object' && saved !== null && 'world' in saved ? saved.world : undefined;
             world = restoreWorld(this.content.world, savedWorld, `slot${slot.slot}.json.world`);
         } catch (err) {
-            this.screen.fillRow(24);
-            this.screen.text(1, 24, `That save can't be loaded: ${err instanceof Error ? err.message : String(err)}`, 12, 0);
+            this.screen.fillRow(this.screen.height - 1);
+            this.screen.text(1, this.screen.height - 1, `That save can't be loaded: ${err instanceof Error ? err.message : String(err)}`, 12, 0);
             await this.term.key();
 
             return false;
@@ -1259,8 +1284,8 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         const int = (lo: number, hi: number) => (a: string): boolean => /^\d+$/.test(a) && +a >= lo && +a <= hi;
         const limits: Readonly<Partial<Record<NumericField, (a: string) => boolean>>> = {
             screen: (a) => int(1, 1920)(a) && this.world.has(+a),
-            x: int(1, MAP_WIDTH),
-            y: int(1, MAP_HEIGHT),
+            x: int(1, this.world.width),
+            y: int(1, this.world.height),
         };
 
         const answers: [NumericField, string][] = [];
@@ -1284,7 +1309,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         if ((await ask('Edit flags? (Y/N)', (a) => /^[yn]$/i.test(a))).toUpperCase() === 'Y') {
             const flags: FlagRecord = p.flags;
             for (const [name, value] of Object.entries(flags)) {
-                if (y > 23) {
+                if (y > this.screen.height - 2) {
                     this.clearScreen();
                     y = 1;
                 }
@@ -1303,11 +1328,11 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         const text = 'Screen Protection System, Press any key to continue...';
         this.clearScreen();
         for (;;) {
-            const y = Math.floor(Math.random() * 25) + 1;
+            const y = Math.floor(Math.random() * screen.height) + 1;
             // Scroll in from the right, then off to the left.
-            for (let shown = 1; shown <= MAP_WIDTH; shown++) {
+            for (let shown = 1; shown < screen.width; shown++) {
                 screen.fillRow(y);
-                screen.text(80 - shown, y, text.slice(0, shown), YELLOW, 0);
+                screen.text(screen.width - shown, y, text.slice(0, shown), YELLOW, 0);
                 if (await term.key(100)) {
                     return;
                 }

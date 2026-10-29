@@ -11,7 +11,7 @@
 //
 // Text drawn without an {on ...} keeps the background already on screen.
 
-import { COLORS, COLOR_COUNT, WIDTH, HEIGHT, type Color, type Point, type Screen } from './screen.ts';
+import { COLORS, COLOR_COUNT, type Color, type Point, type Screen } from './screen.ts';
 import { cellCount, cells } from './chars.ts';
 
 type Token =
@@ -129,7 +129,7 @@ export interface DrawOptions {
 export function draw(screen: Screen, text: string, { x = 1, y = 1, fg = 15, bg = null, wrap = true }: DrawOptions = {}): Point {
     let blink = false;
     const put = (ch: string): void => {
-        if (x > WIDTH) {
+        if (x > screen.width) {
             if (!wrap) {
                 return;
             }
@@ -137,7 +137,7 @@ export function draw(screen: Screen, text: string, { x = 1, y = 1, fg = 15, bg =
             x = 1;
             y++;
         }
-        if (y > HEIGHT) {
+        if (y > screen.height) {
             return;
         }
         const back = bg ?? (screen.inside(x, y) ? screen.cell(x, y).bg : 0);
@@ -171,7 +171,7 @@ export function draw(screen: Screen, text: string, { x = 1, y = 1, fg = 15, bg =
                 break;
             case 'center':
                 // (A line too wide to centre starts at the left edge.)
-                x = Math.max(1, 40 - Math.floor(width(text) / 2) + 1);
+                x = Math.max(1, Math.floor(screen.width / 2) - Math.floor(width(text) / 2) + 1);
                 break;
         }
     }

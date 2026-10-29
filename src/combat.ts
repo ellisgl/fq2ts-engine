@@ -303,6 +303,11 @@ export async function fight(
     { superhumanFactor = 3, defeat = monsterDefeat, victory, left }: FightOptions = {},
 ): Promise<FightResult> {
     const { screen } = term;
+    // The bottom three rows: the hitpoints (where the status bar is), what's
+    // happening, and the choices.
+    const statusRow = screen.height - 2;
+    const saysRow = screen.height - 1;
+    const lastRow = screen.height;
     const maxHp = monster.hp;
     let hp = monster.hp;
 
@@ -314,11 +319,11 @@ export async function fight(
         draw(screen, text, { y, fg, bg });
     };
     const status = (dead = false): void => {
-        for (let x = 1; x <= 79; x++) {
-            screen.put(x, 23, ' ', 14, 1);
+        for (let x = 1; x < screen.width; x++) {
+            screen.put(x, statusRow, ' ', 14, 1);
         }
         const mine = `Your Hitpoints - (${player.hp}/${player.maxHp}) ${monster.name}'s hitpoints - `;
-        draw(screen, dead ? `${mine}{red}Dead` : `${mine}(${hp}/${maxHp})`, { y: 23, fg: 14, bg: 1 });
+        draw(screen, dead ? `${mine}{red}Dead` : `${mine}(${hp}/${maxHp})`, { y: statusRow, fg: 14, bg: 1 });
     };
     const anyKey = (): Promise<string> => term.key();
     const enter = async (): Promise<void> => {
@@ -335,26 +340,26 @@ export async function fight(
         player.hp = Math.max(0, player.hp - damage);
         status();
         const result = damage > 0 ? `for ${damage} points damage` : 'but does no damage';
-        line(25, `${monster.name} ${attack.text} ${result}. Hit Enter...`, 7);
+        line(lastRow, `${monster.name} ${attack.text} ${result}. Hit Enter...`, 7);
         await enter();
-        clear(24);
-        clear(25);
+        clear(saysRow);
+        clear(lastRow);
 
         return player.hp > 0;
     };
 
     const lose = async (): Promise<FightResult> => {
         status();
-        line(23, defeat(player), 14, 1);
+        line(statusRow, defeat(player), 14, 1);
         await anyKey();
-        clear(24);
-        clear(25);
+        clear(saysRow);
+        clear(lastRow);
 
         return 'lost';
     };
 
     const result = await (async (): Promise<FightResult> => {
-        line(24, monster.says, 15);
+        line(saysRow, monster.says, 15);
 
         if (coin() && !(await monsterTurn())) {
             return lose();
@@ -366,16 +371,16 @@ export async function fight(
             let key;
 
             do {
-                clear(25);
-                draw(screen, option === 0 ? '{on blue}Attack{on black}  Run for it' : 'Attack  {on blue}Run for it', { y: 25, fg: 15, bg: 0 });
+                clear(lastRow);
+                draw(screen, option === 0 ? '{on blue}Attack{on black}  Run for it' : 'Attack  {on blue}Run for it', { y: lastRow, fg: 15, bg: 0 });
                 key = await term.key();
                 if (key === 'left' || key === 'right') {
                     option = 1 - option;
                 }
             } while (key !== 'enter');
 
-            clear(24);
-            clear(25);
+            clear(saysRow);
+            clear(lastRow);
 
             if (option === 1) {
                 // One time in ten the monster catches you as you run.
@@ -383,7 +388,7 @@ export async function fight(
                     return 'fled';
                 }
 
-                line(24, `As you attempt to leave, ${monster.name} sees you and attacks!`, 15);
+                line(saysRow, `As you attempt to leave, ${monster.name} sees you and attacks!`, 15);
                 if (!(await monsterTurn())) {
                     return lose();
                 }
@@ -396,7 +401,7 @@ export async function fight(
             const { powerHit } = blow;
             hp -= damage;
             const verb = powerHit ? 'POWER HIT' : 'hit';
-            line(24, `You ${verb} ${monster.name} for ${damage} points damage.${hp < 1 ? '  Press any key...' : ''}`, 7);
+            line(saysRow, `You ${verb} ${monster.name} for ${damage} points damage.${hp < 1 ? '  Press any key...' : ''}`, 7);
             if (hp < 1) {
                 status(true);
                 player.gold += monster.gold;
@@ -404,15 +409,15 @@ export async function fight(
                 await anyKey();
 
                 if (powerHit && monster.kill) {
-                    line(24, `{lightcyan}${monster.kill}`, 15);
+                    line(saysRow, `{lightcyan}${monster.kill}`, 15);
                     await anyKey();
                 }
 
                 const them = { he: 'him', she: 'her', it: 'it' }[monster.pronoun];
-                line(24, victory ?? `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}on ${them} and get {white}${monster.exp}{green} Experience..`, 15);
-                clear(25);
+                line(saysRow, victory ?? `{green}You killed {lightred}${monster.name}{green}!  You find {yellow}$${monster.gold} {green}on ${them} and get {white}${monster.exp}{green} Experience..`, 15);
+                clear(lastRow);
                 await anyKey();
-                clear(24);
+                clear(saysRow);
 
                 return 'won';
             }

@@ -1,5 +1,6 @@
-// The world: 79x22 screens laid out on an 80-wide grid (screen n's
-// neighbours are n-1, n+1, n-80 and n+80). Screens come from data/maps.
+// The world: screens laid out on an 80-wide grid (screen n's neighbours
+// are n-1, n+1, n-80 and n+80). Screens come from data/maps. Each is the
+// size of the game's map: 79x22 on the usual 80x25 screen (see mapSize).
 
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { writeFileAtomic } from './files.ts';
@@ -7,10 +8,23 @@ import { join } from 'node:path';
 import { at, cellAt } from './assert.ts';
 import { fitsCell, graphemes } from './chars.ts';
 import { record, string, integer, boolean, array, oneOf, field, InvalidData, type Reader } from './validate.ts';
-import type { Color } from './screen.ts';
+import type { Color, ScreenSize } from './screen.ts';
 
+// The map of the usual 80x25 screen.
 export const MAP_WIDTH = 79;
 export const MAP_HEIGHT = 22;
+
+export interface MapSize {
+    width: number;
+    height: number;
+}
+
+export const MAP_SIZE: MapSize = { width: MAP_WIDTH, height: MAP_HEIGHT };
+
+// The map a screen has room for: every column but the last, and every row
+// but the bottom three (the status bar, and the fights' lines under it).
+export const mapSize = ({ width, height }: ScreenSize): MapSize => ({ width: width - 1, height: height - 3 });
+
 export const GRID_WIDTH = 80;
 export const GRID_HEIGHT = 24;
 
@@ -86,8 +100,8 @@ export function inferTerrain({ ch, fg, bg, solid }: Tile & { solid: boolean }, k
     return bg === 2 ? 'grass' : 'floor';
 }
 
-// One screen of data/maps. Rows are top to bottom, MAP_HEIGHT of them, each
-// MAP_WIDTH cells wide.
+// One screen of data/maps. Rows are top to bottom, as many as the game's map
+// has (MapSize), each as wide as it.
 export interface GameMap {
     screen: number;
     // Shown when the player arrives ("" for none).
@@ -114,14 +128,14 @@ export interface GameMap {
     triggers?: (string | null)[][];
 }
 
-// A list of MAP_HEIGHT strings of MAP_WIDTH characters, each turned into
-// a cell with `cell` (which returns undefined for a character it rejects).
-function grid<T>(cell: (ch: string) => T | undefined, expected: string): Reader<T[][]> {
+// A list of strings of `width` characters, each turned into a cell with
+// `cell` (which returns undefined for a character it rejects).
+function grid<T>(width: number, cell: (ch: string) => T | undefined, expected: string): Reader<T[][]> {
     return (value, path) =>
         array(value, path, (row, rowPath) => {
             const chars = graphemes(string(row, rowPath));
-            if (chars.length !== MAP_WIDTH) {
-                throw new InvalidData(`${rowPath}: expected ${MAP_WIDTH} cells, found ${chars.length}`);
+            if (chars.length !== width) {
+                throw new InvalidData(`${rowPath}: expected ${width} cells, found ${chars.length}`);
             }
             return chars.map((ch, i) => {
                 const c = cell(ch);
@@ -135,15 +149,15 @@ function grid<T>(cell: (ch: string) => T | undefined, expected: string): Reader<
 
 // A grid of colours: each row one hex digit a cell (0-F, the 16 colours),
 // or two (00-FF, any of the 256) once a colour past F is used.
-const colorGrid: Reader<Color[][]> = (value, path) =>
+const colorGrid = (width: number): Reader<Color[][]> => (value, path) =>
     array(value, path, (row, rowPath) => {
         const text = string(row, rowPath);
-        const digits = text.length === MAP_WIDTH * 2 ? 2 : 1;
-        if (text.length !== MAP_WIDTH * digits) {
-            throw new InvalidData(`${rowPath}: expected ${MAP_WIDTH} cells (one hex digit each, or two), found ${text.length} characters`);
+        const digits = text.length === width * 2 ? 2 : 1;
+        if (text.length !== width * digits) {
+            throw new InvalidData(`${rowPath}: expected ${width} cells (one hex digit each, or two), found ${text.length} characters`);
         }
 
-        return Array.from({ length: MAP_WIDTH }, (_, i) => {
+        return Array.from({ length: width }, (_, i) => {
             const cell = text.slice(i * digits, (i + 1) * digits);
             if (!/^[0-9A-F]+$/.test(cell)) {
                 throw new InvalidData(`${rowPath}[${i}]: expected ${digits === 1 ? 'a hex digit' : 'two hex digits'}, found "${cell}"`);
@@ -160,30 +174,31 @@ const terrainCode = (ch: string): Terrain | undefined => TERRAINS.find((t) => TE
 export const isTriggerCode = (ch: string): boolean => /^[!-~]$/.test(ch) && ch !== '.';
 const triggerCode = (ch: string): string | null | undefined => (ch === '.' ? null : isTriggerCode(ch) ? ch : undefined);
 
-export function readMap(value: unknown, path: string): GameMap {
+// A screen from its data/maps file, which must be `size` (the game's map).
+export function readMap(value: unknown, path: string, { width, height }: MapSize = MAP_SIZE): GameMap {
     const r = record(value, path);
     const mapKind = field(r, 'kind', path, kind);
     // Any character one column wide (stored in NFC, so an accented letter
     // is the same however it was typed).
-    const tiles = field(r, 'tiles', path, grid((ch) => (fitsCell(ch) ? ch.normalize('NFC') : undefined), 'a character one column wide'));
-    const fg = field(r, 'fg', path, colorGrid);
-    const bg = field(r, 'bg', path, colorGrid);
-    const solid = field(r, 'solid', path, grid((ch) => (ch === '#' ? true : ch === '.' ? false : undefined), '# or .'));
+    const tiles = field(r, 'tiles', path, grid(width, (ch) => (fitsCell(ch) ? ch.normalize('NFC') : undefined), 'a character one column wide'));
+    const fg = field(r, 'fg', path, colorGrid(width));
+    const bg = field(r, 'bg', path, colorGrid(width));
+    const solid = field(r, 'solid', path, grid(width, (ch) => (ch === '#' ? true : ch === '.' ? false : undefined), '# or .'));
     for (const [name, rows] of [['tiles', tiles], ['fg', fg], ['bg', bg], ['solid', solid]] as const) {
-        if (rows.length !== MAP_HEIGHT) {
-            throw new InvalidData(`${path}.${name}: expected ${MAP_HEIGHT} rows`);
+        if (rows.length !== height) {
+            throw new InvalidData(`${path}.${name}: expected ${height} rows`);
         }
     }
     const terrain =
         r['terrain'] === undefined
             ? tiles.map((row, y) => row.map((ch, x) => inferTerrain({ ch, fg: cellAt(fg, x + 1, y + 1), bg: cellAt(bg, x + 1, y + 1), solid: cellAt(solid, x + 1, y + 1) }, mapKind)))
-            : field(r, 'terrain', path, grid(terrainCode, `one of ${Object.values(TERRAIN_CODES).join(' ')}`));
-    if (terrain.length !== MAP_HEIGHT) {
-        throw new InvalidData(`${path}.terrain: expected ${MAP_HEIGHT} rows`);
+            : field(r, 'terrain', path, grid(width, terrainCode, `one of ${Object.values(TERRAIN_CODES).join(' ')}`));
+    if (terrain.length !== height) {
+        throw new InvalidData(`${path}.terrain: expected ${height} rows`);
     }
-    const triggers = r['triggers'] === undefined ? undefined : field(r, 'triggers', path, grid(triggerCode, 'a keyboard character, or . for none'));
-    if (triggers && triggers.length !== MAP_HEIGHT) {
-        throw new InvalidData(`${path}.triggers: expected ${MAP_HEIGHT} rows`);
+    const triggers = r['triggers'] === undefined ? undefined : field(r, 'triggers', path, grid(width, triggerCode, 'a keyboard character, or . for none'));
+    if (triggers && triggers.length !== height) {
+        throw new InvalidData(`${path}.triggers: expected ${height} rows`);
     }
     const map: GameMap = {
         screen: field(r, 'screen', path, integer),
@@ -233,11 +248,11 @@ export function writeMap(map: GameMap): string {
 
 export const mapFileName = (screen: number): string => `${String(screen).padStart(4, '0')}.json`;
 
-// A new screen filled with one cell (by default, blank ground of the
-// kind's terrain).
-export function blankMap(screen: number, kind: MapKind, cell?: MapCell): GameMap {
+// A new screen of the game's map size filled with one cell (by default,
+// blank ground of the kind's terrain).
+export function blankMap(screen: number, kind: MapKind, cell?: MapCell, { width, height }: MapSize = MAP_SIZE): GameMap {
     const { ch, fg, bg, solid, terrain } = cell ?? { ch: ' ', fg: 15, bg: 0, solid: false, terrain: kind === 2 ? 'floor' : 'grass' };
-    const rows = <T>(value: T): T[][] => Array.from({ length: MAP_HEIGHT }, () => Array.from({ length: MAP_WIDTH }, () => value));
+    const rows = <T>(value: T): T[][] => Array.from({ length: height }, () => Array.from({ length: width }, () => value));
     return { screen, name: '', kind, tiles: rows(ch), fg: rows(fg), bg: rows(bg), solid: rows(solid), terrain: rows(terrain) };
 }
 
@@ -246,24 +261,47 @@ export function gridPosition(screen: number): { col: number; row: number } {
     return { col: ((screen - 1) % GRID_WIDTH) + 1, row: Math.floor((screen - 1) / GRID_WIDTH) + 1 };
 }
 
+// How big a screen's map is.
+export const sizeOf = (map: GameMap): MapSize => ({ width: map.tiles[0]?.length ?? 0, height: map.tiles.length });
+
 export class World {
     private readonly maps: Map<number, GameMap>;
+    // Every screen's size: the game's map.
+    public readonly width: number;
+    public readonly height: number;
 
-    public constructor(maps: ReadonlyMap<number, GameMap>) {
+    public constructor(maps: ReadonlyMap<number, GameMap>, { width, height }: MapSize = MAP_SIZE) {
+        this.width = width;
+        this.height = height;
+        for (const map of maps.values()) {
+            this.check(map);
+        }
         this.maps = new Map(maps);
     }
 
-    public static load(dir: string): World {
+    public get size(): MapSize {
+        return { width: this.width, height: this.height };
+    }
+
+    private check(map: GameMap): void {
+        const { width, height } = sizeOf(map);
+        if (width !== this.width || height !== this.height) {
+            throw new InvalidData(`Screen ${map.screen} is ${width}x${height}, but this world's screens are ${this.width}x${this.height}.`);
+        }
+    }
+
+    // The screens in a maps folder, each `size` (the game's map).
+    public static load(dir: string, size: MapSize = MAP_SIZE): World {
         const maps = new Map<number, GameMap>();
         for (const file of readdirSync(dir)) {
             if (!file.endsWith('.json')) {
                 continue;
             }
             const data: unknown = JSON.parse(readFileSync(join(dir, file), 'utf8'));
-            const map = readMap(data, file);
+            const map = readMap(data, file, size);
             maps.set(map.screen, map);
         }
-        return new World(maps);
+        return new World(maps, size);
     }
 
     private map(screen: number): GameMap {
@@ -409,6 +447,7 @@ export class World {
 
     // Adds a screen, replacing any with the same number.
     public put(map: GameMap): void {
+        this.check(map);
         this.maps.set(map.screen, structuredClone(map));
     }
 

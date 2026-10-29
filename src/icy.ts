@@ -14,7 +14,7 @@
 
 import { deflateSync, crc32 } from 'node:zlib';
 import { cellCount, cells as splitCells } from './chars.ts';
-import { rgb, COLORS, COLOR_COUNT, HEIGHT, WIDTH, type Color } from './screen.ts';
+import { rgb, COLORS, COLOR_COUNT, DEFAULT_SIZE, type Color, type ScreenSize } from './screen.ts';
 import { escapeMarkup } from './text.ts';
 
 // Each CP437 byte as Unicode. 0 and 255 show as spaces.
@@ -45,11 +45,11 @@ export interface Painting {
 
 // The picture as markup, to draw from the top left corner: a line per row,
 // or more where a row has cells left empty (null) or with no background.
-// Only what fits on the screen is kept.
-export function pictureMarkup({ width, cells }: Painting): string[] {
+// Only what fits on the screen (the game's: Config.screen) is kept.
+export function pictureMarkup({ width, cells }: Painting, screen: ScreenSize = DEFAULT_SIZE): string[] {
     const name = (c: number): string => COLORS[c] ?? String(c);
     const lines: string[] = [];
-    for (let y = 0; y < Math.min(HEIGHT, cells.length / width); y++) {
+    for (let y = 0; y < Math.min(screen.height, cells.length / width); y++) {
         let line = '';
         let last: Paint | null = null;
         const end = (): void => {
@@ -59,7 +59,7 @@ export function pictureMarkup({ width, cells }: Painting): string[] {
             line = '';
             last = null;
         };
-        cells.slice(y * width, y * width + Math.min(width, WIDTH)).forEach((c, x) => {
+        cells.slice(y * width, y * width + Math.min(width, screen.width)).forEach((c, x) => {
             // (Once a line has a background it can't go back to none.)
             if (!c || (c.bg === null && last?.bg != null)) {
                 end();

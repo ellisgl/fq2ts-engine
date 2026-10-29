@@ -3,26 +3,29 @@
 import { draw, width } from './text.ts';
 import { cellCount, fitsCell, graphemes } from './chars.ts';
 import { at } from './assert.ts';
-import { WIDTH, type Color, type Screen } from './screen.ts';
+import type { Color, Screen } from './screen.ts';
 import { isMouse, type Terminal } from './terminal.ts';
 
 const BLUE = 1;
 const WHITE = 15;
 
-// The bar on row 23: shaded ends and centred white-on-blue text. Text too
-// long for the bar is cut off under the shaded ends.
-// The row of the status bar, under the map.
+// The row of the status bar, under the map: the third from the bottom (23
+// on an 80x25 screen).
 export const STATUS_ROW = 23;
+export const statusRow = (screen: Screen): number => screen.height - 2;
 
+// The status bar: shaded ends and centred white-on-blue text. Text too long
+// for the bar is cut off under the shaded ends.
 export function statusBar(screen: Screen, text: string): void {
-    const y = STATUS_ROW;
-    for (let x = 1; x <= 79; x++) {
+    const y = statusRow(screen);
+    const right = screen.width - 1;
+    for (let x = 1; x <= right; x++) {
         screen.put(x, y, ' ', WHITE, BLUE);
     }
     draw(screen, `{center}${text}`, { y, fg: WHITE, bg: BLUE, wrap: false });
     screen.text(1, y, '░▒', BLUE, 0);
-    screen.text(78, y, '▒░', BLUE, 0);
-    screen.put(80, y, ' ', 7, 0);
+    screen.text(right - 1, y, '▒░', BLUE, 0);
+    screen.put(screen.width, y, ' ', 7, 0);
 }
 
 // A vertical list of options starting at row `y`. Returns the chosen index,
@@ -123,7 +126,7 @@ async function editText(
         const visible = typed > fits ? graphemes(value).slice(typed - fits) : graphemes(value);
         const shown = mask === undefined ? visible.join('') : mask.repeat(visible.length);
         screen.text(x, y, shown + ' '.repeat(Math.max(0, length - visible.length)), fg, bg);
-        screen.cursor = { x: Math.min(x + visible.length, WIDTH), y };
+        screen.cursor = { x: Math.min(x + visible.length, screen.width), y };
         const key = await term.key();
         if (key === 'enter' || key === 'escape') {
             screen.cursor = null;
@@ -144,23 +147,26 @@ export async function prompt(term: Terminal, y: number, label: string): Promise<
     return (await textInput(term, { x: cellCount(label) + 1, y, length: 30, fg: 7, bg: 0 })).trim();
 }
 
-// Rows of text shown at once by scrollText (rows 3 to 23).
+// Rows of text shown at once by scrollText: rows 3 to 23 on an 80x25
+// screen, and the same rows down to the third from the bottom on others.
 export const SCROLL_PAGE = 21;
+export const scrollPage = (screen: Screen): number => screen.height - 4;
 
 // A full-screen window of text that scrolls: arrows and the mouse wheel by a
 // line, Page Up/Down (or Space) by a page, Home/End to the ends. Enter,
 // Escape or Q closes it.
 export async function scrollText(term: Terminal, lines: readonly string[], { title = '', from = 'top' }: { title?: string; from?: 'top' | 'bottom' } = {}): Promise<void> {
     const { screen } = term;
-    const last = Math.max(0, lines.length - SCROLL_PAGE);
+    const page = scrollPage(screen);
+    const last = Math.max(0, lines.length - page);
     let top = from === 'bottom' ? last : 0;
     for (;;) {
         screen.clear();
         screen.fillRow(1, BLUE);
         draw(screen, `{center}{yellow}${title}`, { y: 1, bg: BLUE, wrap: false });
-        lines.slice(top, top + SCROLL_PAGE).forEach((line, i) => draw(screen, line, { x: 2, y: 3 + i, fg: 7 }));
-        const shown = lines.length ? `${top + 1}-${Math.min(lines.length, top + SCROLL_PAGE)} of ${lines.length}` : 'empty';
-        draw(screen, `{darkgray}Arrows, PgUp/PgDn, Home/End scroll.  Enter or Esc closes.{x 66}{gray}${shown}`, { y: 25, bg: 0 });
+        lines.slice(top, top + page).forEach((line, i) => draw(screen, line, { x: 2, y: 3 + i, fg: 7 }));
+        const shown = lines.length ? `${top + 1}-${Math.min(lines.length, top + page)} of ${lines.length}` : 'empty';
+        draw(screen, `{darkgray}Arrows, PgUp/PgDn, Home/End scroll.  Enter or Esc closes.{x ${screen.width - 14}}{gray}${shown}`, { y: screen.height, bg: 0 });
         const event = await term.event();
         if (isMouse(event)) {
             if (event.action === 'wheel') {
@@ -176,9 +182,9 @@ export async function scrollText(term: Terminal, lines: readonly string[], { tit
             } else if (key === 'down') {
                 top++;
             } else if (key === 'pageup') {
-                top -= SCROLL_PAGE;
+                top -= page;
             } else if (key === 'pagedown' || key === ' ') {
-                top += SCROLL_PAGE;
+                top += page;
             } else if (key === 'home') {
                 top = 0;
             } else if (key === 'end') {

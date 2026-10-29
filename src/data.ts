@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { readConfig, type Config } from './game.ts';
 import { readBestiary, type Bestiary } from './combat.ts';
 import { readItems, type ItemCatalogue } from './items.ts';
-import { World } from './world.ts';
+import { World, mapSize } from './world.ts';
 
 export interface GameData {
     config: Config;
@@ -17,9 +17,11 @@ export interface GameData {
 
 export function readGameData(dir: string): GameData {
     const json = (file: string): unknown => JSON.parse(readFileSync(join(dir, file), 'utf8'));
+    const config = readConfig(json('config.json'));
     return {
-        config: readConfig(json('config.json')),
-        world: World.load(join(dir, 'maps')),
+        config,
+        // (Each screen the size of the config's map.)
+        world: World.load(join(dir, 'maps'), mapSize(config.screen)),
         items: readItems(json('items.json')),
         monsters: readBestiary(json('monsters.json')),
     };

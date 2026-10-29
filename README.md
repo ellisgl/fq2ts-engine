@@ -1,6 +1,7 @@
 # @fq2ts/engine
 
-The game engine Final Quest 2 runs on: an 80x25 terminal screen, maps, text
+The game engine Final Quest 2 runs on: an 80x25 terminal screen (or bigger,
+if a game says so), maps, text
 markup, the `g` API that scripts use, combat, items and saves. A game supplies
 its content (scripts for each screen, the starting player, the title screen)
 and its data (maps, items, monsters); the engine does the rest: the title
@@ -81,7 +82,7 @@ import content from './content.ts';
 // mistake in a data file is a plain message, not a garbled screen.
 const { config, ...data } = readGameData(join(import.meta.dir, 'data'));
 const game = new Game({
-    term: new Terminal({ name: config.title }),
+    term: new Terminal({ name: config.title, size: config.screen }),
     config,
     ...data,                  // world, items, monsters
     content,
@@ -112,6 +113,24 @@ hits.
 { "title": "Test Quest", "company": "Test Company", "companyShort": "TestCo",
   "version": "V1.0", "revision": "Rev A", "superhumanFactor": 3 }
 ```
+
+It can also give the screen's size, if the game isn't 80x25 (the usual,
+and the smallest):
+
+```json
+"screen": { "width": 120, "height": 37 }
+```
+
+The map is the screen less its last column and its bottom three rows: the
+status bar under the map, and the lines fights use (the third from the
+bottom, and the two under it). So an 80x25 game's screens are 79x22, and a
+120x37 game's are 119x34. Everything else follows from the size: the
+`Terminal` (give it `size: config.screen`, as above; the game refuses one
+of another size), the maps (`readGameData` reads them at the size, and
+refuses any other), mods' maps (`loadMods(dir, names,
+mapSize(config.screen))`), the server's browser page, and the tools (the
+`GameFiles`' `screen`). The size is fixed: players need a window at least
+that big, and a smaller one is refused with a message saying so.
 
 **items.json**: a list of items. `kind` is `weapon`, `armour`, `usable`,
 `quest` (never sold or dropped) or `misc`. Weapons and armour have a
@@ -153,8 +172,9 @@ scripts (`Content.events`) to run once a fight is `won`, `lost` or `fled`.
 
 **maps/**: one file per screen, `0001.json` for screen 1. Screens sit on
 a grid 80 wide, so screen n's neighbours are n-1, n+1, n-80 and n+80, and
-the player walks off one edge onto the next screen. Each screen is 79x22
-cells, kept as 22 strings per layer: `tiles` (the characters), `fg` and
+the player walks off one edge onto the next screen. Each screen is the
+game's map size (79x22 cells on an 80x25 screen), kept as a string per row
+for each layer: `tiles` (the characters), `fg` and
 `bg` (a hex digit per cell for the 16 colours, or two for all 256),
 `solid` (`#` or `.`), `terrain` (`.` grass, `f` forest, `m` mountain, `w`
 water, `r` road, `_` floor, `#` structure) and, if any, `triggers` (a
@@ -168,8 +188,8 @@ The maps are best made with the level editor in
 [@fq2ts/tools](https://github.com/ellisgl/fq2ts-tools) (`bun run edit`),
 not by hand.
 
-> **Rows and columns count from 1.** The top left cell is (1,1): a map's
-> columns are 1-79 and its rows 1-22, and the whole screen is 80x25. The
+> **Rows and columns count from 1.** The top left cell is (1,1): on an
+> 80x25 screen, a map's columns are 1-79 and its rows 1-22. The
 > same numbers are used everywhere in the engine: `at` tiles (`"9,9"`),
 > `{x}` and `{y}` in markup, `g.x` and `g.y`, `g.moveTo` and `g.goto`, and
 > the level editor. Icy Draw counts from 0, so add 1 to both of the
@@ -296,14 +316,17 @@ own `keys`...); single-player needs none of them.
 
 #### [terminal.ts](src/terminal.ts)
 The `Terminal`: raw keyboard (and, if asked, mouse) input, and drawing.
-`new Terminal({ name })` uses the process's stdin and stdout; a server
+`new Terminal({ name, size })` uses the process's stdin and stdout, with
+a screen of the game's size (80x25 if it's not given); a server
 gives it a connection's instead. `term.start()` / `term.stop()` take over
 and give back the terminal; `await term.key()` reads one key, as a name
 (`'up'`, `'enter'`, `'escape'`...) or the character typed. Also
 `parseKeys`, which turns raw input into keys.
 
 #### [screen.ts](src/screen.ts)
-The `Screen`: an 80x25 grid of cells (a character, its colours and blink),
+The `Screen`: a grid of cells, the game's size (`screen.width` and
+`screen.height`; 80x25 unless it says otherwise): a character, its colours
+and blink in each,
 drawn to the terminal by sending only the cells that changed. Colours are
 0-255: the 16 CGA colours (`COLORS`), then xterm's. `colorDepth(env)`
 works out what the terminal can show (true colour, 256 or 16), and the
@@ -328,12 +351,14 @@ symbol or line drawing, but not emoji or other wide characters).
 ### The world and its things
 
 #### [world.ts](src/world.ts)
-The `World` (every screen's map, by number; `World.load(dir)` reads a
-maps folder) and a `GameMap` (a screen: its tiles, colours, solid cells,
-terrain and triggers). `readMap` / `writeMap` read and write map files,
-`blankMap` makes an empty one, `inferTerrain` guesses terrain from how a
-tile looks, and the constants say how big things are (`MAP_WIDTH`,
-`MAP_HEIGHT`, `GRID_WIDTH`) and what map kinds and terrains there are.
+The `World` (every screen's map, by number; `World.load(dir, size)` reads
+a maps folder; `world.width` and `world.height` are its screens' size)
+and a `GameMap` (a screen: its tiles, colours, solid cells, terrain and
+triggers). `mapSize(config.screen)` is the size of a game's maps;
+`readMap` / `writeMap` read and write map files, `blankMap` makes an empty
+one, `inferTerrain` guesses terrain from how a tile looks, and the
+constants say how big things are (`MAP_SIZE`, the usual 79x22;
+`GRID_WIDTH`) and what map kinds and terrains there are.
 
 #### [player.ts](src/player.ts)
 The `Player`: what's saved (name, position, hitpoints, gold, strength,
@@ -396,16 +421,18 @@ triggers: { T: jobs.giver('bartender', '{white}"What\'ll it be?"') }
 #### [mods.ts](src/mods.ts)
 Mods: folders of TypeScript and data that add to a game without changing
 it: screens, scripts on any screen, items, monsters, events, and their own
-flags and world state. `loadMods(dir, names)` loads the ones named (only
-those; a folder that isn't named is never run), `readModList` reads a
+flags and world state. `loadMods(dir, names, size)` loads the ones named
+(only those; a folder that isn't named is never run), their screens the
+game's map size, `readModList` reads a
 setting such as `"wishing-well, other-mod"` into names, and `applyMods`
 merges them into a game's content and data. Mods only add: anything one
 adds that's already there is an error naming the mod.
 
 ```ts
 import { applyMods, loadMods, readModList } from '@fq2ts/engine/mods';
+import { mapSize } from '@fq2ts/engine/world';
 
-const mods = await loadMods('mods', readModList(process.env['MY_GAME_MODS'], 'MY_GAME_MODS'));
+const mods = await loadMods('mods', readModList(process.env['MY_GAME_MODS'], 'MY_GAME_MODS'), mapSize(config.screen));
 const game = new Game({ term, config, ...applyMods({ content, ...data }, mods), saves });
 ```
 

@@ -7,8 +7,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Disconnected, Terminal, type InputEvent, type Key, type MouseInput, type TerminalInput, type TerminalOutput } from './terminal.ts';
-import { HEIGHT, WIDTH, type Screen } from './screen.ts';
-import { World, MAP_WIDTH, MAP_HEIGHT, type GameMap, type MapKind } from './world.ts';
+import { DEFAULT_SIZE, type Screen, type ScreenSize } from './screen.ts';
+import { MAP_SIZE, World, sizeOf, type GameMap, type MapKind, type MapSize } from './world.ts';
 import type { Attack, Monster } from './combat.ts';
 
 // ---- Terminal
@@ -30,8 +30,13 @@ export class FakeInput extends EventEmitter implements TerminalInput {
 
 export class FakeOutput extends EventEmitter implements TerminalOutput {
     public isTTY = true;
-    public columns = WIDTH;
-    public rows = HEIGHT;
+    public columns: number;
+    public rows: number;
+    public constructor({ width, height }: ScreenSize = DEFAULT_SIZE) {
+        super();
+        this.columns = width;
+        this.rows = height;
+    }
     public written = '';
     public write(data: string): void {
         this.written += data;
@@ -52,9 +57,10 @@ export class FakeTerminal extends Terminal {
     private readonly steps: Step[];
     private readonly fallback: Key | undefined;
 
-    public constructor(steps: readonly Step[] = [], { fallback }: { fallback?: Key } = {}) {
-        const output = new FakeOutput();
-        super({ input: new FakeInput(), output });
+    // `size` is the game's screen (Config.screen; by default 80x25).
+    public constructor(steps: readonly Step[] = [], { fallback, size = DEFAULT_SIZE }: { fallback?: Key; size?: ScreenSize } = {}) {
+        const output = new FakeOutput(size);
+        super({ input: new FakeInput(), output, size });
         this.out = output;
         this.steps = [...steps];
         this.fallback = fallback;
@@ -105,14 +111,14 @@ export const typed = (text: string): Key[] => [...text, 'enter'];
 
 export function row(screen: Screen, y: number): string {
     let line = '';
-    for (let x = 1; x <= WIDTH; x++) {
+    for (let x = 1; x <= screen.width; x++) {
         line += screen.cell(x, y).ch;
     }
     return line.trimEnd();
 }
 
 export function screenText(screen: Screen): string {
-    return Array.from({ length: HEIGHT }, (_, i) => row(screen, i + 1)).join('\n');
+    return Array.from({ length: screen.height }, (_, i) => row(screen, i + 1)).join('\n');
 }
 
 // ---- Files and worlds
@@ -121,11 +127,11 @@ export function tempDir(): string {
     return mkdtempSync(join(tmpdir(), 'fq2-test-'));
 }
 
-// A plain screen: blank grass, white on green, nothing solid except the
-// listed "x,y" cells.
-export function makeMap(screen: number, kind: MapKind = 1, solid: readonly string[] = []): GameMap {
+// A plain screen (79x22 unless told): blank grass, white on green, nothing
+// solid except the listed "x,y" cells.
+export function makeMap(screen: number, kind: MapKind = 1, solid: readonly string[] = [], { width, height }: MapSize = MAP_SIZE): GameMap {
     const rows = <T>(cell: (x: number, y: number) => T): T[][] =>
-        Array.from({ length: MAP_HEIGHT }, (_, y) => Array.from({ length: MAP_WIDTH }, (_, x) => cell(x + 1, y + 1)));
+        Array.from({ length: height }, (_, y) => Array.from({ length: width }, (_, x) => cell(x + 1, y + 1)));
     return {
         screen,
         name: '',
@@ -138,8 +144,9 @@ export function makeMap(screen: number, kind: MapKind = 1, solid: readonly strin
     };
 }
 
+// A world of these screens, the size of the first (79x22 with none).
 export function makeWorld(...maps: GameMap[]): World {
-    return new World(new Map(maps.map((m) => [m.screen, m])));
+    return new World(new Map(maps.map((m) => [m.screen, m])), maps[0] ? sizeOf(maps[0]) : MAP_SIZE);
 }
 
 // The keys that pick option `i` in a choice list.

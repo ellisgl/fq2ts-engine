@@ -199,7 +199,7 @@ export function makeGameWith<F extends FlagRecord, W extends WorldRecord = World
     gameContent: Content<F, W>,
     { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys, fought, ambush, nearby, worldStore, news }: GameSetup<F, W> = {},
 ): { game: Game<F, W>; term: FakeTerminal } {
-    const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
+    const term = new FakeTerminal(steps, { size: gameConfig.screen, ...(fallback === undefined ? {} : { fallback }) });
     const game = new Game({
         term,
         world: world ?? testWorld(),

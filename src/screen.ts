@@ -1,16 +1,25 @@
-// An 80x25 grid of coloured character cells, drawn to the terminal by
-// sending only the cells that changed since the last flush.
+// A grid of coloured character cells (80x25 unless a game says otherwise:
+// Config.screen), drawn to the terminal by sending only the cells that
+// changed since the last flush.
 //
-// Coordinates are 1-based (x = column 1-80, y = row 1-25) to match the game
-// data. Colours are numbers from 0 to 255: the 16 CGA colours, then xterm's
+// Coordinates count from 1 (x = column 1-80, y = row 1-25 on an 80x25
+// screen) to match the game data. Colours are numbers from 0 to 255: the 16 CGA colours, then xterm's
 // 256-colour palette. Each screen draws them as well as its terminal can
 // (see ColorDepth).
 
 import { at } from './assert.ts';
 import { REPLACEMENT, cells, fitsCell } from './chars.ts';
 
+// The usual size, and the smallest a game can have.
 export const WIDTH  = 80;
 export const HEIGHT = 25;
+
+export interface ScreenSize {
+    width: number;
+    height: number;
+}
+
+export const DEFAULT_SIZE: ScreenSize = { width: WIDTH, height: HEIGHT };
 
 export const COLORS = [
     'black', 'blue', 'green', 'cyan', 'red', 'magenta', 'brown', 'gray',
@@ -170,10 +179,14 @@ export class Screen {
 
     // How many colours the terminal can show.
     public readonly depth: ColorDepth;
+    public readonly width: number;
+    public readonly height: number;
 
-    public constructor(depth: ColorDepth = 'true') {
+    public constructor(depth: ColorDepth = 'true', { width, height }: ScreenSize = DEFAULT_SIZE) {
         this.depth = depth;
-        const size = WIDTH * HEIGHT;
+        this.width = width;
+        this.height = height;
+        const size = width * height;
         this.chars = new Array<string>(size).fill(' ');
         this.fg    = new Uint8Array(size).fill(7);
         this.bg    = new Uint8Array(size).fill(0);
@@ -183,11 +196,11 @@ export class Screen {
     }
 
     public inside(x: number, y: number): boolean {
-        return x >= 1 && x <= WIDTH && y >= 1 && y <= HEIGHT;
+        return x >= 1 && x <= this.width && y >= 1 && y <= this.height;
     }
 
     private index(x: number, y: number): number {
-        return (y - 1) * WIDTH + (x - 1);
+        return (y - 1) * this.width + (x - 1);
     }
 
     // `ch` should fit a cell (see chars.ts); anything else is drawn as a "?".
@@ -226,13 +239,13 @@ export class Screen {
     }
 
     public fillRow(y: number, bg: Color = 0, fg: Color = 7): void {
-        for (let x = 1; x <= WIDTH; x++) {
+        for (let x = 1; x <= this.width; x++) {
             this.put(x, y, ' ', fg, bg);
         }
     }
 
     public clear(bg: Color = 0): void {
-        for (let y = 1; y <= HEIGHT; y++) {
+        for (let y = 1; y <= this.height; y++) {
             this.fillRow(y, bg);
         }
     }
@@ -256,7 +269,7 @@ export class Screen {
         let out = '';
         let last = '';
         let pos = -1;
-        for (let i = 0; this.dirty && i < WIDTH * HEIGHT; i++) {
+        for (let i = 0; this.dirty && i < this.width * this.height; i++) {
             const ch = this.chars[i] ?? ' ';
             const attr = this.attr(i);
             if (this.shownCh[i] === ch && this.shownAttr[i] === attr) {
@@ -266,7 +279,7 @@ export class Screen {
             this.shownCh[i] = ch;
             this.shownAttr[i] = attr;
             if (pos !== i) {
-                out += `\x1b[${Math.floor(i / WIDTH) + 1};${(i % WIDTH) + 1}H`;
+                out += `\x1b[${Math.floor(i / this.width) + 1};${(i % this.width) + 1}H`;
             }
 
             const style = styleOf(attr, this.depth);
@@ -276,7 +289,7 @@ export class Screen {
             out += ch;
 
             // Never rely on the terminal's own wrapping at the right margin.
-            pos = (i + 1) % WIDTH === 0 ? -1 : i + 1;
+            pos = (i + 1) % this.width === 0 ? -1 : i + 1;
         }
 
         this.dirty = false;
@@ -295,8 +308,8 @@ export class Screen {
     // screen (the credits) in the terminal after the game exits.
     public dump(): string {
         const lines: string[] = [];
-        for (let y = 1; y <= HEIGHT; y++) {
-            let end = WIDTH;
+        for (let y = 1; y <= this.height; y++) {
+            let end = this.width;
             while (
                 end > 0 &&
         at(this.chars, this.index(end, y)) === ' ' &&
