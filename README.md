@@ -168,6 +168,13 @@ The maps are best made with the level editor in
 [@fq2ts/tools](https://github.com/ellisgl/fq2ts-tools) (`bun run edit`),
 not by hand.
 
+> **Rows and columns count from 1.** The top left cell is (1,1): a map's
+> columns are 1-79 and its rows 1-22, and the whole screen is 80x25. The
+> same numbers are used everywhere in the engine: `at` tiles (`"9,9"`),
+> `{x}` and `{y}` in markup, `g.x` and `g.y`, `g.moveTo` and `g.goto`, and
+> the level editor. Icy Draw counts from 0, so add 1 to both of the
+> numbers it shows: its 8,8 is the engine's 9,9.
+
 ## The content
 
 A game's `Content<Flags, World>` ([game.ts](src/game.ts)) is everything
@@ -254,7 +261,7 @@ Everything the game writes is markup ([text.ts](src/text.ts)):
 {color 208}     foreground colour by number, 0-255
 {blink red}     blinking foreground (a name or a number)
 {on blue}       background colour (a name or a number)
-{x 27} {y 5}    move to a column / row (1-based)
+{x 27} {y 5}    move to a column / row (counting from 1)
 {sp 10}         ten spaces in the current colours
 {center}        centre the rest of the line
 {{              a literal "{"
