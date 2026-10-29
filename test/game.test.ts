@@ -261,7 +261,7 @@ describe('triggers', () => {
     });
 
     test('going to a missing screen is an error', async () => {
-        const broken: Content<TestFlags> = { ...testContent, screens: { 1: { at: { '11,10': (g) => g.goto(99, 1, 1) } } } };
+        const broken: Content<TestFlags, TestWorld> = { ...testContent, screens: { 1: { at: { '11,10': (g) => g.goto(99, 1, 1) } } } };
         const { game, term } = makeGameWith(broken, { world, monsters: onlyMonster(monster()), player: player(), steps: [...RESUME, 'right'] });
         expect(await caught(game.run())).toEqual(new Error('Screen 99 does not exist.'));
         expect(term.remaining).toBe(0);
@@ -394,7 +394,7 @@ describe('encounters', () => {
     test("a monster's after-fight hook runs the content's event", async () => {
         mockRandom(0);
         const looter = onlyMonster(monster({ hp: 1, attack: 0, after: { won: 'loot' } }));
-        const looting: Content<TestFlags> = { ...testContent, events: { loot: (g) => g.give('wildberries', 2) } };
+        const looting: Content<TestFlags, TestWorld> = { ...testContent, events: { loot: (g) => g.give('wildberries', 2) } };
         const p = player({ screen: 2, x: 10, y: 10, monsters: true });
         const { game, term } = makeGameWith(looting, { world, player: p, monsters: looter, steps: [...RESUME, 'right', 'enter', 'enter', 'x', 'x', ...LEAVE] });
         await run(game, term);
@@ -404,7 +404,7 @@ describe('encounters', () => {
     test("hooks for other endings don't run", async () => {
         mockRandom(0);
         const looter = onlyMonster(monster({ hp: 1, attack: 0, after: { lost: 'loot' } }));
-        const looting: Content<TestFlags> = { ...testContent, events: { loot: (g) => g.give('wildberries', 2) } };
+        const looting: Content<TestFlags, TestWorld> = { ...testContent, events: { loot: (g) => g.give('wildberries', 2) } };
         const p = player({ screen: 2, x: 10, y: 10, monsters: true });
         const { game, term } = makeGameWith(looting, { world, player: p, monsters: looter, steps: [...RESUME, 'right', 'enter', 'enter', 'x', 'x', ...LEAVE] });
         await run(game, term);
@@ -667,7 +667,7 @@ describe('loading', () => {
         const saves = new Saves(tempDir());
         saves.save(1, 'Old', { ...player(), flags: { visits: 2, met: false, name: '', legacy: 7 } });
         const seen: unknown[] = [];
-        const upgrading: Content<TestFlags> = {
+        const upgrading: Content<TestFlags, TestWorld> = {
             ...testContent,
             upgradeSave: (saved, p) => {
                 seen.push(saved);
@@ -779,7 +779,7 @@ test('readConfig reads config.json and rejects bad data', () => {
 });
 
 test("a start player with an item the catalogue doesn't have is refused", () => {
-    const broken: Content<TestFlags> = { ...testContent, start: { ...START, items: { bazooka: 1 } } };
+    const broken: Content<TestFlags, TestWorld> = { ...testContent, start: { ...START, items: { bazooka: 1 } } };
     expect(() => makeGameWith(broken, { world, monsters: onlyMonster(monster()) })).toThrow('There\'s no item "bazooka".');
 });
 
@@ -1028,7 +1028,7 @@ describe('fixes from the code review', () => {
 
     test('no fight on a tile a script handles', async () => {
         mockRandom(0);
-        const scripted: Content<TestFlags> = { ...testContent, screens: { 2: { at: { '11,10': (g) => g.write('A tile.') } } } };
+        const scripted: Content<TestFlags, TestWorld> = { ...testContent, screens: { 2: { at: { '11,10': (g) => g.write('A tile.') } } } };
         const p = player({ screen: 2, x: 10, y: 10, monsters: true });
         const { game, term } = makeGameWith(scripted, { world, player: p, monsters: blobs(), steps: [...RESUME, 'right', ...LEAVE] });
         await run(game, term);

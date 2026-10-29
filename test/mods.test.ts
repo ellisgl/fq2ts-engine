@@ -6,12 +6,12 @@ import { Bestiary, readBestiary } from '../src/combat.ts';
 import { readItems } from '../src/items.ts';
 import { blankMap, writeMap } from '../src/world.ts';
 import { caught, monster, row, screenText, tempDir } from '../src/testing.ts';
-import { bestiary, content, itemCatalogue, makeGameWith, newPlayer, scriptContext, testWorld, type TestFlags } from '../src/fixture.ts';
+import { bestiary, content, itemCatalogue, makeGameWith, newPlayer, scriptContext, testWorld, type TestFlags, type TestWorld } from '../src/fixture.ts';
 import { ScriptContext } from '../src/script.ts';
 import { restorePlayer } from '../src/player.ts';
 
 // Test Quest, ready to add mods to.
-const game = (): ModdableGame<TestFlags> => ({ content, world: testWorld(), items: itemCatalogue, monsters: bestiary });
+const game = (): ModdableGame<TestFlags, TestWorld> => ({ content, world: testWorld(), items: itemCatalogue, monsters: bestiary });
 
 // A mod as loadMods would give it, with nothing but `mod` unless told.
 function loaded(mod: Partial<Mod> & { id: string }, extra: Partial<LoadedMod> = {}): LoadedMod {
@@ -126,7 +126,8 @@ describe('applyMods', () => {
         const { game: running, term } = makeGameWith(modded.content, { ...modded, steps: ['enter', 'x', 'escape', 'escape'] });
         await running.run();
         expect(term.remaining).toBe(0);
-        expect({ ...running.worldState }).toEqual({ rings: 5, ringers: [], 'well.wishes': 1, 'well.wishers': ['Ann'] });
+        const after: Record<string, unknown> = { ...running.worldState };
+        expect(after).toEqual({ rings: 5, ringers: [], 'well.wishes': 1, 'well.wishers': ['Ann'] });
     });
 
     test('a mod with world values that are not values is refused', () => {

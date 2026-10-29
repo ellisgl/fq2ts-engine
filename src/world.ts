@@ -175,9 +175,9 @@ export function readMap(value: unknown, path: string): GameMap {
         }
     }
     const terrain =
-    r['terrain'] === undefined
-        ? tiles.map((row, y) => row.map((ch, x) => inferTerrain({ ch, fg: cellAt(fg, x + 1, y + 1), bg: cellAt(bg, x + 1, y + 1), solid: cellAt(solid, x + 1, y + 1) }, mapKind)))
-        : field(r, 'terrain', path, grid(terrainCode, `one of ${Object.values(TERRAIN_CODES).join(' ')}`));
+        r['terrain'] === undefined
+            ? tiles.map((row, y) => row.map((ch, x) => inferTerrain({ ch, fg: cellAt(fg, x + 1, y + 1), bg: cellAt(bg, x + 1, y + 1), solid: cellAt(solid, x + 1, y + 1) }, mapKind)))
+            : field(r, 'terrain', path, grid(terrainCode, `one of ${Object.values(TERRAIN_CODES).join(' ')}`));
     if (terrain.length !== MAP_HEIGHT) {
         throw new InvalidData(`${path}.terrain: expected ${MAP_HEIGHT} rows`);
     }
