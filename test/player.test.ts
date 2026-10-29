@@ -38,8 +38,16 @@ describe('restorePlayer', () => {
             flags: { seen: true, count: 3, name: 'Bob' },
             seen: [1, 2, 81],
             title: 'the Brave',
+            alignment: -3,
         };
         expect(restorePlayer(start, JSON.parse(JSON.stringify(saved)), items)).toEqual(saved);
+    });
+
+    test('alignment is kept within -10 to 10, and 0 left out', () => {
+        expect(restorePlayer(start, { alignment: -4 }, items).alignment).toBe(-4);
+        expect(restorePlayer(start, { alignment: 40 }, items).alignment).toBe(10);
+        expect(restorePlayer(start, { alignment: 0 }, items)).not.toHaveProperty('alignment');
+        expect(() => restorePlayer(start, { alignment: 'evil' }, items)).toThrow('save.alignment');
     });
 
     test('a title is kept, and none is left out', () => {

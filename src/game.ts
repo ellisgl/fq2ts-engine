@@ -143,6 +143,16 @@ export interface Content<F extends FlagRecord, W extends WorldRecord = WorldReco
     upgradeSave?(saved: unknown, player: Player<F>): void;
 }
 
+// Another player next to this one (see GameOptions.nearby).
+export interface NearbyPlayer {
+    name: string;
+    hp: number;
+    maxHp: number;
+    // Takes `amount` hitpoints from them (never below 1), and tells them
+    // why.
+    wound(amount: number, why: string): void;
+}
+
 export interface GameOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     term: Terminal;
     world: World;
@@ -187,6 +197,9 @@ export interface GameOptions<F extends FlagRecord, W extends WorldRecord = World
     // onto wild ground, with or without random monsters, for someone to
     // fight there and then, or null for no one.
     ambush?(player: Player<F>): Monster | null;
+    // The other players next to this one (on a server; alone, there are
+    // none), for scripts that do something to them (g.nearby()).
+    nearby?(player: Player<F>): NearbyPlayer[];
     // More keys while exploring (a server's P, L...), by key, each a script.
     // They're listed by ?, with their help.
     keys?: Readonly<Record<string, ExtraKey<F, W>>>;
@@ -308,6 +321,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     private readonly ownWorld: MemoryWorld | null;
     // Where g.news goes.
     public readonly news: (text: string) => void;
+    public readonly nearby: (player: Player<F>) => NearbyPlayer[];
     private readonly figures: ((screen: number) => readonly Figure[]) | undefined;
     private readonly moved: ((player: Player<F>) => void) | undefined;
     private readonly keys: Readonly<Record<string, ExtraKey<F, W>>>;
@@ -329,7 +343,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // Where the player was when `moved` was last told.
     private lastPlace = '';
 
-    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {}, fought, ambush, worldStore, news = () => undefined }: GameOptions<F, W>) {
+    public constructor({ term, world, config, monsters, items, content, saves, debug = false, player, autosave, screensaver = true, cheats = true, figures, moved, keys = {}, fought, ambush, nearby, worldStore, news = () => undefined }: GameOptions<F, W>) {
         this.term = term;
         this.screen = term.screen;
         this.world = world;
@@ -366,6 +380,7 @@ export class Game<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         this.autosave = autosave;
         this.cheats = cheats;
         this.news = news;
+        this.nearby = nearby ?? (() => []);
         this.ownWorld = worldStore ? null : new MemoryWorld();
         this.worldState = worldView(content.world, worldStore ?? this.ownWorld ?? new MemoryWorld());
         this.figures = figures;

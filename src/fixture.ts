@@ -187,6 +187,7 @@ export interface GameSetup<F extends FlagRecord, W extends WorldRecord = WorldRe
     keys?: GameOptions<F, W>['keys'];
     fought?: GameOptions<F, W>['fought'];
     ambush?: GameOptions<F, W>['ambush'];
+    nearby?: GameOptions<F, W>['nearby'];
     worldStore?: GameOptions<F, W>['worldStore'];
     news?: GameOptions<F, W>['news'];
 }
@@ -196,7 +197,7 @@ export interface GameSetup<F extends FlagRecord, W extends WorldRecord = WorldRe
 // a new temporary folder.
 export function makeGameWith<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
     gameContent: Content<F, W>,
-    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys, fought, ambush, worldStore, news }: GameSetup<F, W> = {},
+    { steps = [], fallback, player, world, config: gameConfig = config, saves, debug = false, monsters = bestiary, items = itemCatalogue, autosave, screensaver, noSaves = false, cheats, figures, moved, keys, fought, ambush, nearby, worldStore, news }: GameSetup<F, W> = {},
 ): { game: Game<F, W>; term: FakeTerminal } {
     const term = new FakeTerminal(steps, fallback === undefined ? {} : { fallback });
     const game = new Game({
@@ -217,6 +218,7 @@ export function makeGameWith<F extends FlagRecord, W extends WorldRecord = World
         ...(keys ? { keys } : {}),
         ...(fought ? { fought } : {}),
         ...(ambush ? { ambush } : {}),
+        ...(nearby ? { nearby } : {}),
         ...(worldStore ? { worldStore } : {}),
         ...(news ? { news } : {}),
     });

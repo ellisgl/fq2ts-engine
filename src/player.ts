@@ -24,6 +24,8 @@ export interface Player<F extends FlagRecord> {
     // A title earned in the game ("the Wyrmslayer"), shown after the name
     // where players are listed (on a server); left out for none.
     title?: string;
+    // Good or evil, from -10 (as evil as can be) to 10; left out for 0.
+    alignment?: number;
     // The outdoor screens the world map shows: those the player has been
     // to, and the ones around them. Left out, it's the ones around where
     // they are (a new game, or a save from before the map was discovered).
@@ -138,8 +140,14 @@ export function restorePlayer<F extends FlagRecord>(start: Player<F>, value: unk
         flags: r['flags'] === undefined ? structuredClone(start.flags) : restoreFlags(start.flags, r['flags'], `${path}.flags`),
         ...(r['seen'] === undefined ? {} : { seen: restoreSeen(r['seen'], `${path}.seen`) }),
         ...(r['title'] === undefined || r['title'] === '' ? {} : { title: field(r, 'title', path, string) }),
+        ...(r['alignment'] === undefined || r['alignment'] === 0 ? {} : { alignment: clampAlignment(field(r, 'alignment', path, integer)) }),
     };
 }
+
+// How good or evil a player can be.
+export const ALIGNMENT_MIN = -10;
+export const ALIGNMENT_MAX = 10;
+export const clampAlignment = (n: number): number => Math.max(ALIGNMENT_MIN, Math.min(ALIGNMENT_MAX, Math.trunc(n)));
 
 // The screens seen on the world map: whole numbers, each once.
 function restoreSeen(value: unknown, path: string): number[] {

@@ -355,6 +355,29 @@ describe('ScriptContext: choices and scrolling', () => {
 });
 
 describe('ScriptContext: name and sex', () => {
+    test('alignment: 0 to start, kept within -10 to 10, and 0 left out', () => {
+        const { g, game } = scriptContext();
+        expect(g.alignment).toBe(0);
+        g.alignment += 3;
+        expect(game.playing.alignment).toBe(3);
+        g.alignment = -50;
+        expect(g.alignment).toBe(-10);
+        g.alignment = 99;
+        expect(g.alignment).toBe(10);
+        g.alignment = 0;
+        expect(game.playing).not.toHaveProperty('alignment');
+    });
+
+    test('nearby: no one alone; on a server, whoever it says', () => {
+        expect(scriptContext().g.nearby()).toEqual([]);
+        const wounded: string[] = [];
+        const bob = { name: 'Bob', hp: 30, maxHp: 90, wound: (n: number, why: string) => wounded.push(`${n} ${why}`) };
+        const { g } = scriptContext({ nearby: () => [bob] });
+        const [near] = g.nearby();
+        near?.wound(30, 'Ouch.');
+        expect([near?.name, wounded]).toEqual(['Bob', ['30 Ouch.']]);
+    });
+
     test('a title is set, and an empty one taken off', () => {
         const { g, game } = scriptContext();
         expect(g.title).toBe('');

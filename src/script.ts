@@ -15,10 +15,10 @@ import { cellCount } from './chars.ts';
 import { fight, type FightOptions, type FightResult, type Monster } from './combat.ts';
 import { HEIGHT, type Screen } from './screen.ts';
 import type { Key, Terminal } from './terminal.ts';
-import { equipped, type FlagRecord, type Player, type Sex, type Slot } from './player.ts';
+import { clampAlignment, equipped, type FlagRecord, type Player, type Sex, type Slot } from './player.ts';
 import { count, effectOf, equip, gearOf, give, take, wear, type ItemDef } from './items.ts';
 import { buyMenu, sellMenu, type BuyOptions, type SellOptions } from './shop.ts';
-import type { Game } from './game.ts';
+import type { Game, NearbyPlayer } from './game.ts';
 import type { WorldRecord } from './shared.ts';
 
 // An option in g.choice: its text, or its text and whether to show it.
@@ -74,6 +74,25 @@ export class ScriptContext<F extends FlagRecord, W extends WorldRecord = WorldRe
         } else {
             delete this.player.title;
         }
+    }
+
+    // Good or evil, from -10 to 10 (0 to start); changes are kept within that.
+    public get alignment(): number {
+        return this.player.alignment ?? 0;
+    }
+
+    public set alignment(value: number) {
+        const n = clampAlignment(value);
+        if (n === 0) {
+            delete this.player.alignment;
+        } else {
+            this.player.alignment = n;
+        }
+    }
+
+    // The other players next to this one, on a server (none alone).
+    public nearby(): NearbyPlayer[] {
+        return this.game.nearby(this.player);
     }
 
     public get sex(): Sex {
